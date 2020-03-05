@@ -1,0 +1,1126 @@
+;
+;   This file is part of the registered Spectrum emulator package 'Z80'
+;   version 2.01, and may not be distributed.  You may use this source for
+;   other PC based Spectrum or Z80 emulators only after permission.  It is
+;   however permitted to use this source file or parts thereof for Spectrum
+;   or Z80 emulators on non-PC based machines, provided that the source is
+;   acknowledged.
+;
+;                                                       Gerton Lunter, 3/5/93
+
+        jmp start
+
+switch  db 0
+block   dw 0
+tapheader:      db 19,0,0
+
+foundswitch:
+        lodsb
+        and al,0df
+        cmp al,'O'
+        mov dx,switch_err
+        if nz jmp error
+        lodsb
+        cmp al,020
+        if nz jmp error
+        mov switch,1
+        jmp terug
+
+start:  mov dx,mesg
+        mov ah,9
+        int 021
+        mov dx,mem_err
+        cmp sp,buffer+50000+1000
+        if b jmp error
+        mov sp,buffer+50000+1000
+        mov bx,para_needed      ;buffer+50000+1024
+        mov ah,04a
+        int 021
+        if b jmp error
+        mov ah,048
+        mov bx,01100            ;somewhat more than 16K. I'm not going to be more precise.
+        int 021
+        if b jmp error
+        mov block,ax
+        mov si,081
+        mov bp,lin_err
+        cld
+findswitch:
+        lodsb
+        cmp al,020
+        jz findswitch
+        cmp al,0d
+        jz terug
+        cmp al,9
+        jz findswitch
+        cmp al,'-'
+        jz foundswitch
+terug:  dec si
+        call filename
+        push si
+        test al,al
+        if z jmp fromz80
+        cmp al,3
+        jne noerr
+        mov dx,fromtaperr
+        jmp error
+noerr:
+        cmp al,6
+        if z jmp fromspecem
+        cmp al,5
+        if z jmp fromzx
+        push ax
+        mov ax,03d00
+        int 021
+        mov dx,fnf_err
+        if c jmp error
+        mov bx,ax
+        mov dx,offset buffer
+        mov cx,49152+256
+        mov ah,03f
+        int 021
+        mov dx,fil_err
+        if c jmp error
+        push ax
+        mov ah,03e
+        int 021
+        mov dx,conv1_msg
+        mov ah,9
+        int 021
+        pop cx
+        pop ax
+        cmp al,1
+        if z jmp fromsp
+        cmp al,4
+        if z jmp fromprg
+
+        cmp cx,49179
+        mov dx,fil_err
+        jnz error
+        mov dx,convsna_msg
+        mov ah,9
+        int 021
+        mov si,offset buffer+49178
+        mov di,offset buffer+49181
+        mov cx,49152
+        std
+        rep movsb
+        cld
+        mov al,b[buffer+19]     ;IFF2
+        and al,4
+        if nz mov al,0ff
+        mov b[buffer+19],al
+        mov b[buffer+27],al     ;IFF1
+        mov ah,b[buffer+26]     ;border
+        cmp ah,7
+        if a mov ah,0
+        mov al,b[buffer+20]     ;R
+        shl ax,1
+        mov b[buffer+26],ah
+        mov bx,w[buffer+23]     ;SP
+        cmp bx,16384
+        ja sna_normal
+        mov w[buffer+28],072    ;PC -> RETN
+        jmp sna_continue
+sna_normal:
+        mov ax,w[49152+30+buffer+bx]
+        mov w[buffer+28],ax     ;PC
+        inc bx
+        inc bx
+        mov w[buffer+23],bx
+sna_continue:
+        mov si,xtabsna
+        call xlate
+        jmp phasetwo
+
+error:  mov ah,9
+        int 021
+        int 020
+
+fromspecem:
+        push dx
+        mov dx,convspecem
+        mov ah,9
+        int 021
+        pop dx
+        pop si
+        call open_output
+loop_taps:
+        push bx
+        mov ax,03d00
+        int 021
+        mov dx,fnf_err
+        if c jmp error
+        mov bx,ax
+        mov dx,offset buffer
+        mov cx,50000
+        mov ah,03f
+        int 021
+        mov dx,fil_err
+        if c jmp error
+        mov dx,toolarge
+        cmp ax,50000
+        if z jmp error
+        mov cx,ax
+        mov ah,03e
+        int 021
+        pop bx
+        push cx
+        mov dx,tapheader
+        mov w[tapheader],19
+        mov b[tapheader+2],0
+        mov cx,3
+        call writeblock
+        mov dx,offset buffer
+        mov cx,17
+        call writeblock
+        push bx
+        mov bx,offset buffer
+        mov cx,17
+        xor al,al
+        call calcchecksum
+        pop bx
+        mov b[tapheader],al
+        mov dx,tapheader
+        mov cx,1
+        call writeblock
+        mov ax,w[offset buffer+0b]
+        pop cx
+        sub cx,17
+        cmp ax,cx
+        mov dx,tapformat_err
+        if ne jmp error
+        push ax
+        add ax,2
+        mov w[tapheader],ax
+        mov b[tapheader+2],0ff
+        mov dx,tapheader
+        mov cx,3
+        call writeblock
+        mov dx,offset buffer+17
+        pop cx
+        push cx
+        call writeblock
+        pop cx
+        push bx
+        mov bx,offset buffer+17
+        mov al,0ff
+        call calcchecksum
+        pop bx
+        mov b[tapheader],al
+        mov dx,tapheader
+        mov cx,1
+        call writeblock
+        push bx
+        call filename
+        pop bx
+        cmp al,3
+        jz fromspecem_end
+        cmp al,6
+        if z jmp loop_taps
+        mov dx,nospecem_msg
+        jmp error
+fromspecem_end:
+        mov dx,cre_err
+        mov ah,03e
+        int 021
+        if c jmp error
+        int 020
+
+fromzx:
+        push dx
+        mov dx,convzx
+        mov ah,9
+        int 021
+        pop dx
+        pop si
+        call open_output
+loop_zxtaps:
+        push bx
+        mov ax,03d00
+        int 021
+        mov dx,fnf_err
+        if c jmp error
+        mov bx,ax
+        mov dx,offset buffer
+        mov cx,50000
+        mov ah,03f
+        int 021
+        mov dx,fil_err
+        if c jmp error
+        mov dx,toolarge
+        cmp ax,50000
+        if z jmp error
+        mov cx,ax
+        mov ah,03e
+        int 021
+        pop bx
+        cmp b[buffer],0ff
+        jz zx_headless
+        cmp b[buffer],0
+        mov dx,zxform_msg
+        if nz jmp error
+        mov dx,tapheader
+        push cx
+        mov cx,2
+        call writeblock
+        mov dx,offset buffer+1
+        mov cx,19
+        call writeblock
+        pop cx
+        mov ax,w[buffer+0d]
+        sub cx,22
+        cmp ax,cx
+        mov dx,zxform_msg
+        if nz jmp error
+        add ax,2
+        push ax
+        mov w[tapheader],ax
+        mov dx,tapheader
+        mov cx,2
+        call writeblock
+        pop cx
+        mov w[tapheader],19
+        mov dx,offset buffer+20
+zx_continue:
+        call writeblock
+        push bx
+        call filename
+        pop bx
+        cmp al,3
+        if z jmp fromspecem_end
+        cmp al,5
+        if e jmp loop_zxtaps
+        mov dx,nozx_msg
+        jmp error
+
+zx_headless:
+        dec cx
+        push cx
+        mov w[tapheader],cx
+        mov dx,tapheader
+        mov cx,2
+        call writeblock
+        pop cx
+        mov w[tapheader],19
+        mov dx,offset buffer+1
+        jmp zx_continue
+
+
+
+writeblock:
+        mov ah,040
+        int 021
+        mov dx,cre_err
+        if c jmp error
+        cmp ax,cx
+        if ne jmp error
+        ret
+
+calcchecksum:
+        xor al,[bx]
+        inc bx
+        loop calcchecksum
+        ret
+
+fromprg:
+        cmp cx,49152+256
+        mov dx,fil_err
+        if c jmp error
+        mov dx,convprg_msg
+        mov ah,9
+        int 021
+        cld
+        mov si,offset buffer+0dc
+        mov di,offset buffer
+        mov cx,30
+        rep movsb
+        mov si,offset buffer+256
+        mov di,offset buffer+30
+        mov cx,49152
+        rep movsb
+        mov si,w[buffer+20]             ;sp
+        add w[buffer+20],6
+        add si,offset buffer+30-04000
+        lodsb
+        and ax,4
+        if nz mov ax,0ffff
+        mov [buffer+27],ax              ;iff1 & 2
+        lodsb
+        mov b[buffer+26],al             ;r
+        rol al,1
+        and al,1
+        mov b[buffer+18],al             ;flag
+        lodsw
+        xchg al,ah
+        mov [buffer+24],ax              ;af
+        lodsw
+        mov [buffer+22],ax              ;pc
+        mov al,[buffer+29]
+        dec al
+        cmp al,2
+        jb assume_thisone               ;somewhat mysterious...?
+        mov al,[buffer+19]
+        cmp al,03f
+        mov al,1
+        if nz inc al
+        mov [buffer+29],al              ;im
+assume_thisone:
+        mov si,offset xtabprg
+        call xlate
+        jmp phasetwo
+
+fromz80:
+        mov ax,03d00
+        int 021
+        mov dx,fnf_err
+        if c jmp error
+        mov bx,ax
+        mov dx,offset buffer
+        mov cx,30
+        mov ah,03f
+        int 021
+        mov dx,fil_err
+        if c jmp error
+        cmp ax,30
+        if nz jmp error
+        cmp w[buffer+6],0
+        if z jmp fromnewz80
+        mov dx,offset buffer+30
+        mov cx,49190
+        mov ah,03f
+        int 021
+        mov dx,fil_err
+        if c jmp error
+        push ax
+        mov ah,03e
+        int 021
+        mov dx,conv1_msg
+        mov ah,9
+        int 021
+        pop cx
+        add cx,30
+        mov dx,convz80_msg
+        mov ah,9
+        int 021
+        cmp b[buffer+12],0ff
+        if z mov b[buffer+12],1
+        test b[buffer+12],32
+        jnz descrunge
+        cmp cx,49182
+        mov dx,fil_err
+        if nz jmp error
+        jmp phasetwo
+descrunge:
+        mov di,offset buffer+3+30
+        mov cx,49151+3
+find_end4:
+        dec di
+        inc cx
+find_end3:
+        dec di
+        inc cx
+find_end2:
+        mov al,0
+        inc cx
+        dec di
+find_end:
+        repnz scasb
+        jnz z80err
+        dec cx
+        jcxz z80err
+        mov al,0ed
+        scasb
+        jnz find_end2
+        dec cx
+        jcxz z80err
+        scasb
+        jnz find_end3
+        dec cx
+        jcxz z80err
+        xor al,al
+        scasb
+        jnz find_end4
+        lea si,[di-5]
+        mov di,offset buffer+49151+30
+        mov cx,si
+        sub cx,offset buffer+30-1
+        std
+        rep movsb
+        cld
+        mov si,di
+        inc si
+        mov di,offset buffer+30
+        mov cx,49152
+        call descr_loop
+        jmp phasetwo
+
+descr_loop:
+        cmp si,offset buffer+49152+30
+        ja z80err
+        cmp di,offset buffer+49152+30
+        ja z80err
+        cmp b[si],0ed
+        jz maybe_shiftcode
+        movsb
+        loop descr_loop
+        jmp descr_end
+z80err: mov dx,z80_err
+        jmp error
+maybe_shiftcode:
+        cmp b[si+1],0ed
+        jz shiftcode
+        movsb
+        loop descr_loop
+        jmp descr_end
+shiftcode:
+        inc si
+        inc si
+        lodsb
+        mov bl,al
+        lodsb
+descr_putblock2:
+        stosb
+        dec cx
+        dec bl
+        jnz descr_putblock2
+        cmp cx,49152
+        ja z80err
+        inc cx
+        loop descr_loop
+descr_end:
+        ret
+
+
+fromnewz80:
+        mov dx,offset buffer+30
+        mov cx,2
+        mov ah,03f
+        int 021
+        mov dx,fil_err
+        if c jmp error
+        cmp ax,2
+        if nz jmp error
+        mov w[buffer+30+23],0
+        mov cx,w[buffer+30]
+        cmp cx,23
+        jz accept                       ;normal version 2.00 file
+        cmp cx,21
+        jz accept                       ;old version 2.00 file
+        mov dx,ver_err
+        jmp error
+accept:
+        mov dx,offset buffer+32
+        mov ah,03f
+        int 021
+        mov dx,fil_err
+        if c jmp error
+        cmp ax,cx
+        if nz jmp error
+        mov dx,convz80_msg2
+        mov ah,9
+        int 021
+        mov ax,w[buffer+32]             ;pc
+        mov w[buffer+6],ax
+        cmp b[buffer+34],1
+        mov dx,mod_err
+        if a jmp error
+        jb no_if1
+        cmp b[buffer+36],0ff            ;if1flg
+        mov dx,if1_err
+        if z jmp error
+no_if1:
+        push ds
+        mov ds,cs:block
+        xor dx,dx
+        mov cx,3
+        mov ah,03f
+        int 021
+        mov dx,fil_err
+        if c jmp error
+        test ax
+        jz blocks_loaded
+        cmp ax,3
+        if nz jmp error
+        mov cx,[0]
+        mov ah,03f
+        mov dx,3
+        int 021
+        mov dx,fil_err
+        if c jmp error
+        cmp ax,cx
+        if nz jmp error
+        mov di,offset buffer+30
+        cmp b[2],4
+        if z mov di,offset buffer+30+16384
+        cmp b[2],5
+        if z mov di,offset buffer+30+32768
+        mov cx,16384
+        mov si,3
+        push bx
+        call descr_loop
+        pop bx
+        pop ds
+        jmp no_if1
+blocks_loaded:
+        pop ds
+        jmp phasetwo
+
+fromsp:
+        cmp cx,49190
+        jnz fromoldsp
+        mov si,buffer+6
+        mov di,buffer
+        mov cx,49184
+        cld
+        rep movsb
+        mov dx,convspnew_msg
+        jmp fromnewsp
+fromoldsp:
+        cmp cx,49184
+        if nz jmp error
+        mov dx,convspold_msg
+fromnewsp:
+        mov ah,9
+        int 021
+        mov ah,[buffer+28]
+        and ah,7
+        mov al,[buffer+20]
+        shl ax,1
+        or ah,32
+        mov [buffer+28],ah
+        mov al,[buffer+30]
+        mov ah,al
+        and ax,0201
+        dec al
+        not al
+        mov [buffer+29],ah
+        mov ah,al
+        mov [buffer+30],ax
+        mov si,offset xtabsp
+        call xlate
+        mov si,offset buffer+32
+        mov di,offset buffer+30
+        mov cx,49152
+        rep movsb
+
+phasetwo:
+        mov dx,conv2_msg
+        mov ah,9
+        int 021
+        pop si
+        mov bp,lin_err2
+        call filename
+        push ax
+        mov cx,020
+        mov ah,03c
+        int 021
+        mov dx,cre_err
+        if c jmp error
+        mov bx,ax
+        pop ax
+        push bx
+        test al,al
+        if z jmp toz80
+        cmp al,1
+        jz tosp
+        cmp al,4
+        if z jmp toprg
+        cmp al,2
+        mov dx,badout_err
+        if nz jmp error
+        mov dx,convsna_msg
+        mov ah,9
+        int 021
+        mov bx,w[buffer+8]      ;SP
+        dec bx
+        dec bx
+        cmp bx,16384
+        mov dx,sna_err
+        if b jmp error
+        mov w[buffer+8],bx
+        mov ax,w[buffer+6]      ;PC
+        mov w[49152+30+buffer+bx],ax
+        mov al,b[buffer+27]     ;IFF1
+        mov b[buffer+28],al     ;IFF2
+        mov ax,w[buffer+11]     ;border + R
+        shl al,1
+        shr ax,1
+        and ah,7
+        mov w[buffer+11],ax
+        and b[buffer+29],3      ;IM
+        mov si,xtabsna+27*2-1
+        std
+        call xlate
+        mov si,offset buffer+30
+        mov di,offset buffer+27
+        mov cx,49152
+        cld
+        rep movsb
+        mov cx,49179
+        jmp saveblock
+
+tosp:
+        mov ah,9
+        mov dx,convspnew_msg
+        cmp switch,1
+        if z mov dx,convspold_msg
+        int 021
+        mov di,offset buffer+49151+32
+        mov si,offset buffer+49151+30
+        mov cx,49152
+        std
+        rep movsb
+        cld
+        mov ax,[buffer+11]
+        shl al,1
+        shr ax,1
+        and ah,7
+        mov [buffer+11],ax
+        mov al,[buffer+29]
+        mov ah,[buffer+27]
+        and ax,0102
+        or al,ah
+        mov ah,al
+        mov [buffer+27],ax
+        std
+        mov si,offset xtabsp+27*2-1
+        call xlate
+        cmp switch,0
+        mov cx,49184
+        cld
+        if nz jmp saveblock
+        mov si,buffer+49183
+        mov di,buffer+49183+6
+        std
+        rep movsb
+        cld
+        mov di,offset buffer
+        mov ax,256*'P'+'S'
+        stosw
+        mov ax,0c000
+        stosw
+        mov ax,04000
+        stosw
+        mov cx,49190
+        jmp saveblock
+
+toprg:  mov dx,convprg_msg
+        mov ah,9
+        int 021
+        mov di,offset buffer+49151+256
+        mov si,offset buffer+49151+30
+        std
+        mov cx,49152
+        rep movsb
+        mov di,[buffer+8]               ;sp
+        sub w[buffer+8],6
+        cmp di,16384+6
+        mov dx,prg_err
+        if b jmp error
+        add di,offset buffer-16384+256-2
+        mov ax,[buffer+6]               ;pc
+        stosw
+        mov ax,[buffer]                 ;af reversed
+        xchg ah,al
+        stosw
+        mov ax,[buffer+11]              ;R in AL, bit 7 in AH bit 0
+        shl al,1
+        shr ax,1
+        mov ah,al
+        mov al,[buffer+27]              ;iff1
+        test al
+        if nz mov al,4
+        stosw
+        mov al,[buffer+29]
+        and al,3
+        if z inc al
+        mov [buffer+29],al              ;No, not at all! (See above)
+        mov si,offset xtabprg+27*2-1
+        call xlate
+        mov si,offset buffer
+        mov di,offset buffer+0dc
+        cld
+        mov cx,30
+        rep movsb
+        mov cx,6
+        xor al,al
+        rep stosb
+        mov di,offset buffer
+        mov cx,0dc
+        rep stosb
+        mov cx,0c100
+        jmp saveblock
+
+
+toz80:  mov dx,convz80_145msg
+        mov ah,9
+        int 021
+        or b[buffer+12],32
+        mov di,offset buffer+30
+        mov si,di
+        mov cx,49152
+        jmp noblock
+;
+;si wijst naar eerste nog in te lezen karakter
+;bl bevat bloklengte (0-255)
+;ah bevat blok karakter
+;di wijst naar eerste vrije karakter
+;cx bevat nog te scrungen bytes
+;
+scrungeit2:
+        cmp bl,255
+        jz putblock2
+        lodsb
+        cmp al,ah
+        jnz scr_nogood
+        inc bl
+        loop scrungeit2
+        jmp putblock2
+scr_nogood:
+        dec si
+putblock2:
+        cmp ah,0ed
+        jnz no_ed2
+        cmp bl,2
+        jae putblock3
+        mov al,ah
+        stosb
+        jcxz scr_done
+        movsb                           ;om ED 00 00 00 00 ... -->
+        loop noblock                    ;   ED ED ED nn 00 tegen te gaan.
+        jmp scr_done
+no_ed2: cmp bl,4
+        jbe putnormal
+putblock3:
+        mov al,0ed
+        stosb
+        stosb
+        mov al,bl
+        stosb
+        mov al,ah
+        stosb
+        jcxz scr_done
+        jmp noblock
+putnormal:
+        mov al,ah
+putnorm2:
+        stosb
+        dec bl
+        jnz putnorm2
+        jcxz scr_done
+noblock:                        ;Minimaal 1 over (cx >= 1)
+        lodsb
+        mov ah,al
+        mov bl,1
+        loop scrungeit2
+        jmp putblock2
+scr_done:
+        xor al,al
+        stosb
+        mov al,0ed
+        stosb
+        stosb
+        xor al,al
+        stosb
+        mov cx,di
+        sub cx,offset buffer
+
+saveblock:
+        mov dx,conv3_msg
+        mov ah,9
+        int 021
+        pop bx
+        mov dx,offset buffer
+        mov ah,040
+        int 021
+        mov dx,cre_err
+        if c jmp error
+        cmp ax,cx
+        if ne jmp error
+        mov ah,03e
+        int 021
+        if c jmp error
+        int 020
+
+
+open_output:                    ;Skips all ZX or SPECEM tape files until a
+        push bp                 ;.TAP file is encountered, and it is then
+        push dx                 ;opened for output and the handle returned.
+        push si
+        xor bp,bp
+loop_names:
+        call filename
+        cmp al,0ff
+        jz oo_notap
+        cmp al,5
+        jz loop_names
+        cmp al,6
+        jz loop_names
+        cmp al,3
+        jnz oo_wrongext
+        mov cx,020
+        mov ah,03c
+        int 021
+        mov dx,cre_err
+        if c jmp error
+        mov bx,ax
+        pop si
+        pop dx
+        pop bp
+        ret
+oo_wrongext:
+        mov dx,oow_err
+        jmp error
+oo_notap:
+        mov dx,ntp_err
+        jmp error
+
+
+;
+;In: SI = filename met extensie
+;Uit: SI wijst achter filename, DX wijst naar ASCIIZ filename, AL=0..6
+; voor resp. .z80, .sp, .sna, .tap, .prg, .000/etc en anders
+;
+filename:
+        lodsb
+        cmp al,' '
+        jz filename
+        cmp al,9
+        jz filename
+        cmp al,0
+        jz filename
+        dec si
+        mov dx,si
+        xor bx,bx
+filename1:
+        lodsb
+        cmp al,0d
+        jz filenameend
+        cmp al,' '
+        jz filenameend
+        cmp al,9
+        jz filenameend
+        cmp al,0
+        jz filenameend
+        cmp al,'.'
+        jnz filename1
+        mov bx,si
+        jmp filename1
+filenameend:
+        dec si
+        mov b[si],0
+        cmp al,0d
+        if z mov b[si+1],al
+        cmp dx,si
+        jz nofilename
+        inc si
+        test bx,bx
+        jz filenameerr
+        mov al,b[bx]
+        and al,0df
+        cmp al,'Z'
+        jz filenamez80
+        cmp al,'T'
+        jz filenametap
+        cmp al,'P'
+        jz filenameprg
+        cmp al,'S'
+        jnz filename000
+        mov al,b[bx+1]
+        and al,0df
+        cmp al,'P'
+        jz filenamesp
+        cmp al,'N'
+        jnz filenameother
+        mov al,b[bx+2]
+        and al,0df
+        cmp al,'A'
+        jnz filenameother
+        mov al,2                ;sna
+        ret
+filenamez80:
+        mov ax,w[bx+1]
+        cmp ax,'8'+256*'0'
+        mov al,0                ;z80
+        jz ret
+filenameother:
+        mov al,6                ;anders
+        ret
+filename000:
+        cmp al,010
+        jb filenameother
+        cmp al,019
+        ja filenameother
+        mov ax,w[bx+1]
+        sub ax,'0' by '0'
+        cmp al,9
+        ja filenameother
+        cmp ah,9
+        ja filenameother
+        mov al,5                ;.000/etc (ZX's tape format)
+        ret
+filenameprg:
+        mov ax,w[bx+1]
+        and ax,0dfdf
+        cmp ax,'R'+256*'G'
+        mov al,4
+        je ret
+        jmp filenameother
+filenameerr:
+        mov dx,ext_err
+        jmp error
+nofilename:
+        mov al,0ff
+        test bp,bp
+        jz ret
+        mov dx,bp
+        jmp error
+filenamesp:
+        test b[bx+2],0ff
+        jnz filenameother
+        mov al,1                ;sp
+        ret
+filenametap:
+        mov ax,w[bx+1]
+        and ax,0dfdf
+        cmp ax,'A'+256*'P'
+        mov al,3
+        jz ret
+        jmp filenameother
+
+xlate:
+        mov cx,27
+        push bx
+        push dx
+        xor bh,bh
+        xor dh,dh
+invxloop:
+        lodsb
+        mov bl,al
+        lodsb
+        mov dl,al
+        mov al,[buffer+bx]
+        xchg bx,dx
+        xchg al,[buffer+bx]
+        xchg bx,dx
+        mov [buffer+bx],al
+        loop invxloop
+        pop dx
+        pop bx
+        ret
+
+xtabsp: db 0,7, 1,6, 2,7, 3,6, 24,6, 25,7, 8,22, 9,23, 21,10, 20,11, 28,12
+        db 14,24, 13,25, 15,28, 16,25, 17,24, 18,28, 19,25, 20,24, 21,25
+        db 22,28, 23,25, 24,24, 25,28, 26,28, 27,30, 28,31
+
+xtabsna:
+        db 0,22,1,21,2,13,3,14,4,9,5,10,6,28,7,29,8,23,9,24,10,22,11,20,12,26
+        db 13,20,14,26,15,22,16,28,17,26,18,24,19,21,21,23,22,29,23,29,24,28
+        db 25,26,26,28,28,29
+
+xtabprg:
+        db 0,24, 1,25, 2,14, 3,15, 4,16, 5,17, 6,22, 7,23
+        db 8,20, 9,21, 10,19, 11,26, 12,18, 13,18, 14,18
+        db 15,22, 16,23, 17,23, 18,23, 19,20, 20,21, 21,26
+        db 22,26, 23,24, 24,25, 25,25, 26,26
+
+mesg:   db "CONVZ80 - Conversion utility - (c) 1993 by G.A. Lunter - version 2.01",0d,0a
+        db "          This program may not be distributed.",0d,0a
+        db "          It is part of the registered Spectrum Emulator package."
+        db 0d,0a,0d,0a,'$'
+mem_err:
+        db "Insufficient memory.",0d,0a,'$'
+lin_err:
+        db "CONVZ80 converts between various Spectrum emulators' snapshot and tape file",0d,0a
+        db "formats. The following emulators and file formats are supported:",0d,0a,0d,0a
+        db ".Z80 files (all versions) and .TAP files (version 2.0) of 'Z80'",0d,0a
+        db ".SNA files of Arnt Gulbrandsen's 'JPP'",0d,0a
+        db ".SP files of Pedro Gimeno's 'SPECTRUM' and 'VGASPEC'",0d,0a
+        db ".PRG and tape files of Kevin J. Phair's 'SPECEM'",0d,0a
+        db "Tape files of L. Rindt and E. Brukner's 'ZX'",0d,0a
+        db 0d,0a
+        db "þ Use -o to select VGASPEC's instead of SPECTRUM's .SP format for output.",0d,0a
+        db "þ If converting to .Z80, the old file format is used, supported by all versions."
+        db "þ ConvZ80 cannot convert .TAP files into other tape file formats. If converting",0d,0a
+        db "  to .TAP, you may give multiple input files to convert to single .TAP file",0d,0a
+        db 0d,0a,"Examples:",0d,0a
+        db "  CONVZ80 file1.Z80 file2.Z80             converts to old .Z80 format",0d,0a
+        db "  CONVZ80 file1.PRG file2.Z80             converts SpecEm .PRG to .Z80",0d,0a
+        db "  CONVZ80 -o file1.Z80 file2.SP           converts to VGASPEC .SP format",0d,0a
+        db "  CONVZ80 file1.SP file2.SNA              converts old or new .SP to .SNA",0d,0a
+        db "  CONVZ80 test.000 test.001 test.TAP      converts ZX tapefiles to single .TAP$"
+lin_err2:
+        db 0d,0a,"Error in command line: two filenames expected",0d,0a,'$'
+fnf_err:
+        db "File not found",0d,0a,'$'
+fil_err:
+        db 0d,0a,"Error while reading, or file corrupted",0d,0a,'$'
+cre_err:
+        db 0d,0a,"Error while writing file",0d,0a,'$'
+badout_err:
+        db 0d,0a,"Can convert snapshot only to .Z80, .SNA, .SP or .PRG",0d,0a,'$'
+z80_err:
+        db 0d,0a,"Error in .Z80 file",0d,0a,'$'
+sna_err:
+        db 0d,0a,"Cannot convert to .SNA: stack pointer points to ROM",0d,0a,'$'
+prg_err:
+        db 0d,0a,"Cannot convert to .PRG: stack pointer points to ROM",0d,0a,'$'
+ext_err:
+        db 0d,0a,"Filenames must have extension!",0d,0a,'$'
+ver_err:
+        db 0d,0a,"ConvZ80 only supports .Z80 files up to version 2.0",0d,0a,'$'
+mod_err:
+        db 0d,0a,"File was saved in SamRam or Spectrum 128 mode, and I cannot convert that",0d,0a,'$'
+if1_err:
+        db 0d,0a,"Interface I is active --- cannot convert this file",0d,0a,'$'
+switch_err:
+        db "Error in switch: I know only of -o",0d,0a,'$'
+conv1_msg:
+        db "Converting from $"
+conv2_msg:
+        db " format to $"
+conv3_msg:
+        db " format.",0d,0a,'$'
+convz80_msg:
+        db ".Z80 (v 1.45 or below)$"
+convz80_145msg:
+        db ".Z80 (v 1.45)$"
+convz80_msg2:
+        db ".Z80 (v 2.0)$"
+convsna_msg:
+        db ".SNA ('JPP')$"
+convspold_msg:
+        db ".SP ('vgaspec')$"
+convspnew_msg:
+        db ".SP ('spectrum')$"
+convprg_msg:
+        db ".PRG ('SpecEm')$"
+fromtaperr:
+        db "Cannot convert .tap to SpecEm's tape format",0d,0a,'$'
+toolarge:
+        db "SpecEm tape file too large",0d,0a,'$'
+convspecem:
+        db "Converting from SpecEm tape file format to .TAP ('Z80') format",0d,0a,'$'
+convzx:
+        db "Converting from ZX's tape file format to .TAP ('Z80') format",0d,0a,'$'
+tapformat_err:
+        db "Inputfile corrupt or not a SpecEm tape file",0d,0a,'$'
+oow_err:
+        db "Wrong extension found - you should provide a list of ZX or SpecEm tape files",0d,0a
+        db "followed by a .TAP file",0d,0a,'$'
+ntp_err:
+        db "Converting from tape files: the final filename should be a .TAP file",0d,0a,'$'
+nospecem_msg:
+        db "Expected another SpecEm tape file (or a .TAP file), but found something else!",0d,0a,'$'
+nozx_msg:
+        db "Expected another ZX tape file (or a .TAP file), but found something else!",0d,0a,'$'
+zxform_msg:
+        db "Error in file format of ZX tape file",0d,0a,'$'
+
+
+buffer  equ $
+
+para_needed     equ ($+50015+1024)/16
+
+

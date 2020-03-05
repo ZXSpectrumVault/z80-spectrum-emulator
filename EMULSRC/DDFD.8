@@ -1,0 +1,961 @@
+;
+;   This file is part of the registered Spectrum emulator package 'Z80'
+;   version 2.01, and may not be distributed.  You may use this source for
+;   other PC based Spectrum or Z80 emulators only after permission.  It is
+;   however permitted to use this source file or parts thereof for Spectrum
+;   or Z80 emulators on non-PC based machines, provided that the source is
+;   acknowledged.
+;
+;                                                       Gerton Lunter, 3/5/93
+
+EMULATOR SEGMENT BYTE PUBLIC
+
+;
+;De subroutines voor de instructies met een DDCB of FDCB prefix.
+;Samen met vele onofficiele instructies.
+;Deze broncode moet na EMUL.8 geassembleerd worden:
+;
+;Alle codeblokjes hebben offset 0B7
+;This file occupies 0b7+179*256 to 0b7+255*256
+;
+
+
+NDX MACRO
+        XCHG AX,BX
+        MOV AL,[DI]
+        INC DI
+        CBW
+        ADD AX,ES:#1
+        XCHG AX,BX
+#EM
+
+
+        ORG 0B7+(190 SHL 8)
+CARHIX: TEST ES:B[OFFSET RIX+1]
+        STC
+        LAHF
+        jx 23
+CARLWX: TEST ES:B[OFFSET RIX]
+        STC
+        LAHF
+        jx 23
+
+
+        ORG 0B7+(191 SHL 8)
+DDCB04: SAHF
+        ROL ES:B[OFFSET RIX+1],1
+        IF C JMP CARHIX
+        TEST ES:B[OFFSET RIX+1]
+        LAHF
+        jx 23
+DDCB05: SAHF
+        ROL ES:B[OFFSET RIX],1
+        IF C JMP CARLWX
+        TEST ES:B[OFFSET RIX]
+        LAHF
+        jx 23
+
+
+        ORG 0B7+(192 SHL 8)
+DDCB15: SAHF
+        RCL ES:B[OFFSET RIX],1
+        IF C JMP CARLWX
+        TEST ES:B[OFFSET RIX]
+        LAHF
+        jx 23
+DDCB16: SAHF
+        mov ah,[bx]
+        RCL ah,1
+        IF C JMP CARBX
+        test bh,0c0
+        if nz mov [bx],ah
+        TEST ah,ah
+        LAHF
+        jx 23
+
+
+        ORG 0B7+(193 SHL 8)
+DDCB34: SAHF
+        SHL ES:B[OFFSET RIX+1],1
+        IF C JMP CARHIX
+        TEST ES:B[OFFSET RIX+1]
+        LAHF
+        jx 23
+
+
+        ORG 0B7+(194 SHL 8)
+DDCB44: AND AH,0BF
+        TEST ES:B[OFFSET RIX+1],1
+        IF Z OR AH,040
+        jx 20
+DDCB45: AND AH,0BF
+        TEST ES:B[OFFSET RIX],1
+        IF Z OR AH,040
+        jx 20
+
+
+        ORG 0B7+(195 SHL 8)
+DDCB55: AND AH,0BF
+        TEST ES:B[OFFSET RIX],4
+        IF Z OR AH,040
+        jx 20
+DDCB56: AND AH,0BF
+        TEST BYTE [BX],4
+        IF Z OR AH,040
+        jx 20
+
+
+        ORG 0B7+(196 SHL 8)
+DDCB66: AND AH,0BF
+        TEST BYTE [BX],16
+        IF Z OR AH,040
+        jx 20
+DDCB74: AND AH,0BF
+        TEST ES:B[OFFSET RIX+1],64
+        IF Z OR AH,040
+        jx 20
+
+
+        ORG 0B7+(197 SHL 8)
+DDCB84: AND ES:B[OFFSET RIX+1],254
+        jx 23
+DDCB85: AND ES:B[OFFSET RIX],254
+        jx 23
+DDCB86: AND BYTE [BX],254
+        jx 23
+DDCB8C: AND ES:B[OFFSET RIX+1],253
+        jx 23
+
+
+        ORG 0B7+(198 SHL 8)
+DDCB8D: AND ES:B[OFFSET RIX],253
+        jx 23
+DDCB8E: AND BYTE [BX],253
+        jx 23
+DDCBA4: AND ES:B[OFFSET RIX+1],239
+        jx 23
+DDCBA5: AND ES:B[OFFSET RIX],239
+        jx 23
+
+
+        ORG 0B7+(199 SHL 8)
+DDCBA6: AND BYTE [BX],239
+        jx 23
+DDCBAC: AND ES:B[OFFSET RIX+1],223
+        jx 23
+DDCBAD: AND ES:B[OFFSET RIX],223
+        jx 23
+DDCBAE: AND BYTE [BX],223
+        jx 23
+
+
+        ORG 0B7+(200 SHL 8)
+DDCBC4: OR ES:B[OFFSET RIX+1],1
+        jx 23
+DDCBC5: OR ES:B[OFFSET RIX],1
+        jx 23
+DDCBC6: OR BYTE [BX],1
+        jx 23
+DDCBCC: OR ES:B[OFFSET RIX+1],2
+        jx 23
+
+
+        ORG 0B7+(201 SHL 8)
+DDCBCD: OR ES:B[OFFSET RIX],2
+        jx 23
+DDCBCE: OR BYTE [BX],2
+        jx 23
+DDCB0C: SAHF
+        ROR ES:B[OFFSET RIX+1],1
+        IF C JMP CARHIX
+        TEST ES:B[OFFSET RIX+1]
+        LAHF
+        jx 23
+
+
+        ORG 0B7+(202 SHL 8)
+DDCB0E: SAHF
+        mov ah,[bx]
+        ROR ah,1
+        IF C JMP CARBX
+        test bh,0c0
+        if nz mov [bx],ah
+        TEST ah,ah
+        LAHF
+        jx 23
+DDCB1C: SAHF
+        RCR ES:B[OFFSET RIX+1],1
+        IF C JMP CARHIX
+        TEST ES:B[OFFSET RIX+1]
+        LAHF
+        jx 23
+
+
+        ORG 0B7+(203 SHL 8)
+DDCB2C: SAHF
+        SAR ES:B[OFFSET RIX+1],1
+        IF C JMP CARHIX
+        TEST ES:B[OFFSET RIX+1]
+        LAHF
+        jx 23
+DDCB2D: SAHF
+        SAR ES:B[OFFSET RIX],1
+        IF C JMP CARLWX
+        TEST ES:B[OFFSET RIX]
+        LAHF
+        jx 23
+
+
+        ORG 0B7+(204 SHL 8)
+DDCB3D: SAHF
+        SHR ES:B[OFFSET RIX],1
+        IF C JMP CARLWX
+        TEST ES:B[OFFSET RIX]
+        LAHF
+        jx 23
+
+
+        ORG 0B7+(205 SHL 8)
+DDCB4E: AND AH,0BF
+        TEST BYTE [BX],2
+        IF Z OR AH,040
+        jx 20
+DDCB5C: AND AH,0BF
+        TEST ES:B[OFFSET RIX+1],8
+        IF Z OR AH,040
+        jx 20
+
+
+        ORG 0B7+(206 SHL 8)
+DDCB6C: AND AH,0BF
+        TEST ES:B[OFFSET RIX+1],32
+        IF Z OR AH,040
+        jx 20
+DDCB6D: AND AH,0BF
+        TEST ES:B[OFFSET RIX],32
+        IF Z OR AH,040
+        jx 20
+
+        ORG 0B7+(207 SHL 8)
+DDCB7D: AND AH,0BF              ;veranderd, wegens Sabre Wulf, adres AD86.
+        or ah,128               ;bij BIT wordt blijkbaar de P-flag geset
+        TEST ES:B[OFFSET RIX],128       ;afhankelijk van het teken van de
+        IF Z xOR AH,0c0         ;operand-byte. Ultimate maakt hier gebruik
+        jx 20                      ;van, in Sabre Wulf. Overigens geheel over-
+DDCB7E: AND AH,0BF              ;bodig: op dat punt zit in de Z-flag precies
+        or ah,128               ;de informatie die ze nodig hebben. De Z80
+        TEST BYTE [BX],128      ;'bijbel' van Rodnay Zaks zegt dat de P-flag
+        IF Z xOR AH,0c0         ;een 'onbekende' en 'niet-ter-zake-doende'
+        jx 20                      ;waarde heeft. Blijkbaar toch niet, dus!
+
+
+        ORG 0B7+(208 SHL 8)
+DDCB96: AND BYTE [BX],251
+        jx 23
+DDCB9C: AND ES:B[OFFSET RIX+1],247
+        jx 23
+DDCB9D: AND ES:B[OFFSET RIX],247
+        jx 23
+DDCB9E: AND BYTE [BX],247
+        jx 23
+
+
+        ORG 0B7+(209 SHL 8)
+DDCBB4: AND ES:B[OFFSET RIX+1],191
+        jx 23
+DDCBB5: AND ES:B[OFFSET RIX],191
+        jx 23
+DDCBB6: AND BYTE [BX],191
+        jx 23
+DDCBBC: AND ES:B[OFFSET RIX+1],127
+        jx 23
+
+
+        ORG 0B7+(210 SHL 8)
+DDCBBD: AND ES:B[OFFSET RIX],127
+        jx 23
+DDCBBE: AND BYTE [BX],127
+        jx 23
+DDCBD4: OR ES:B[OFFSET RIX+1],4
+        jx 23
+DDCBD5: OR ES:B[OFFSET RIX],4
+        jx 23
+
+
+        ORG 0B7+(211 SHL 8)
+DDCBD6: OR BYTE [BX],4
+        jx 23
+DDCBDC: OR ES:B[OFFSET RIX+1],8
+        jx 23
+DDCBDD: OR ES:B[OFFSET RIX],8
+        jx 23
+DDCBDE: OR BYTE [BX],8
+        jx 23
+
+
+        ORG 0B7+(212 SHL 8)
+DDCBE4: OR ES:B[OFFSET RIX+1],16
+        jx 23
+DDCBE5: OR ES:B[OFFSET RIX],16
+        jx 23
+DDCBE6: OR BYTE [BX],16
+        jx 23
+DDCBEC: OR ES:B[OFFSET RIX+1],32
+        jx 23
+
+
+        ORG 0B7+(213 SHL 8)
+DDCBED: OR ES:B[OFFSET RIX],32
+        jx 23
+DDCBEE: OR BYTE [BX],32
+        jx 23
+DDCBF4: OR ES:B[OFFSET RIX+1],64
+        jx 23
+DDCBF5: OR ES:B[OFFSET RIX],64
+        jx 23
+
+
+        ORG 0B7+(214 SHL 8)
+DDCBF6: OR BYTE [BX],64
+        jx 23
+DDCBFC: OR ES:B[OFFSET RIX+1],128
+        jx 23
+DDCBFD: OR ES:B[OFFSET RIX],128
+        jx 23
+DDCBFE: OR B[BX],128
+        jx 23
+
+
+
+
+
+        ORG 0B7+(215 SHL 8)
+FDCB04: SAHF
+        ROL ES:B[OFFSET RIY+1],1
+        IF C JMP CARHIY
+        TEST ES:B[OFFSET RIY+1]
+        LAHF
+        jx 23
+FDCB05: SAHF
+        ROL ES:B[OFFSET RIY],1
+        IF C JMP CARLWY
+        TEST ES:B[OFFSET RIY]
+        LAHF
+        jx 23
+
+
+        ORG 0B7+(216 SHL 8)
+FDCB15: SAHF
+        RCL ES:B[OFFSET RIY],1
+        IF C JMP CARLWY
+        TEST ES:B[OFFSET RIY]
+        LAHF
+        jx 23
+FDCB16: SAHF
+        mov ah,[bx]
+        RCL ah,1
+        IF C JMP CARBX
+        test bh,0c0
+        if nz mov [bx],ah
+        TEST ah,ah
+        LAHF
+        jx 23
+
+
+        ORG 0B7+(217 SHL 8)
+FDCB34: SAHF
+        SHL ES:B[OFFSET RIY+1],1
+        IF C JMP CARHIY
+        TEST ES:B[OFFSET RIY+1]
+        LAHF
+        jx 23
+
+
+        ORG 0B7+(218 SHL 8)
+FDCB44: AND AH,0BF
+        TEST ES:B[OFFSET RIY+1],1
+        IF Z OR AH,040
+        jx 20
+FDCB45: AND AH,0BF
+        TEST ES:B[OFFSET RIY],1
+        IF Z OR AH,040
+        jx 20
+
+
+        ORG 0B7+(219 SHL 8)
+FDCB55: AND AH,0BF
+        TEST ES:B[OFFSET RIY],4
+        IF Z OR AH,040
+        jx 20
+FDCB56: AND AH,0BF
+        TEST BYTE [BX],4
+        IF Z OR AH,040
+        jx 20
+
+
+        ORG 0B7+(220 SHL 8)
+FDCB66: AND AH,0BF
+        TEST BYTE [BX],16
+        IF Z OR AH,040
+        jx 20
+FDCB74: AND AH,0BF
+        TEST ES:B[OFFSET RIY+1],64
+        IF Z OR AH,040
+        jx 20
+
+
+        ORG 0B7+(221 SHL 8)
+FDCB84: AND ES:B[OFFSET RIY+1],254
+        jx 23
+        FDCB85: AND ES:B[OFFSET RIY],254
+        jx 23
+FDCB86: AND BYTE [BX],254
+        jx 23
+FDCB8C: AND ES:B[OFFSET RIY+1],253
+        jx 23
+
+
+        ORG 0B7+(222 SHL 8)
+FDCB8D: AND ES:B[OFFSET RIY],253
+        jx 23
+FDCB8E: AND BYTE [BX],253
+        jx 23
+FDCBA4: AND ES:B[OFFSET RIY+1],239
+        jx 23
+FDCBA5: AND ES:B[OFFSET RIY],239
+        jx 23
+
+
+        ORG 0B7+(223 SHL 8)
+FDCBA6: AND BYTE [BX],239
+        jx 23
+FDCBAC: AND ES:B[OFFSET RIY+1],223
+        jx 23
+FDCBAD: AND ES:B[OFFSET RIY],223
+        jx 23
+FDCBAE: AND BYTE [BX],223
+        jx 23
+
+
+        ORG 0B7+(224 SHL 8)
+FDCBC4: OR ES:B[OFFSET RIY+1],1
+        jx 23
+FDCBC5: OR ES:B[OFFSET RIY],1
+        jx 23
+FDCBC6: OR BYTE [BX],1
+        jx 23
+FDCBCC: OR ES:B[OFFSET RIY+1],2
+        jx 23
+
+
+        ORG 0B7+(225 SHL 8)
+FDCBCD: OR ES:B[OFFSET RIY],2
+        jx 23
+FDCBCE: OR BYTE [BX],2
+        jx 23
+
+
+        ORG 0B7+(226 SHL 8)
+FDCB0E: SAHF
+        mov ah,[bx]
+        ROR ah,1
+        IF C JMP CARBX
+        test bh,0c0
+        if nz mov [bx],ah
+        TEST ah,ah
+        LAHF
+        jx 23
+FDCB1C: SAHF
+        RCR ES:B[OFFSET RIY+1],1
+        IF C JMP CARHIY
+        TEST ES:B[OFFSET RIY+1]
+        LAHF
+        jx 23
+
+
+        ORG 0B7+(227 SHL 8)
+FDCB2C: SAHF
+        SAR ES:B[OFFSET RIY+1],1
+        IF C JMP CARHIY
+        TEST ES:B[OFFSET RIY+1]
+        LAHF
+        jx 23
+FDCB2D: SAHF
+        SAR ES:B[OFFSET RIY],1
+        IF C JMP CARLWY
+        TEST ES:B[OFFSET RIY]
+        LAHF
+        jx 23
+
+
+        ORG 0B7+(228 SHL 8)
+FDCB3D: SAHF
+        SHR ES:B[OFFSET RIY],1
+        IF C JMP CARLWY
+        TEST ES:B[OFFSET RIY]
+        LAHF
+        jx 23
+
+
+        ORG 0B7+(229 SHL 8)
+FDCB4E: AND AH,0BF
+        TEST BYTE [BX],2
+        IF Z OR AH,040
+        jx 20
+FDCB5C: AND AH,0BF
+        TEST ES:B[OFFSET RIY+1],8
+        IF Z OR AH,040
+        jx 20
+
+
+        ORG 0B7+(230 SHL 8)
+FDCB6C: AND AH,0BF
+        TEST ES:B[OFFSET RIY+1],32
+        IF Z OR AH,040
+        jx 20
+FDCB6D: AND AH,0BF
+        TEST ES:B[OFFSET RIY],32
+        IF Z OR AH,040
+        jx 20
+
+
+        ORG 0B7+(231 SHL 8)
+FDCB7D: AND AH,0BF
+        or ah,128
+        TEST ES:B[OFFSET RIY],128
+        IF Z xOR AH,0c0
+        jx 20
+FDCB7E: AND AH,0BF
+        or ah,128
+        TEST BYTE [BX],128
+        IF Z xOR AH,0c0
+        jx 20
+
+
+        ORG 0B7+(232 SHL 8)
+FDCB96: AND BYTE [BX],251
+        jx 23
+FDCB9C: AND ES:B[OFFSET RIY+1],247
+        jx 23
+FDCB9D: AND ES:B[OFFSET RIY],247
+        jx 23
+FDCB9E: AND BYTE [BX],247
+        jx 23
+
+
+        ORG 0B7+(233 SHL 8)
+FDCBB4: AND ES:B[OFFSET RIY+1],191
+        jx 23
+FDCBB5: AND ES:B[OFFSET RIY],191
+        jx 23
+FDCBB6: AND BYTE [BX],191
+        jx 23
+FDCBBC: AND ES:B[OFFSET RIY+1],127
+        jx 23
+
+
+        ORG 0B7+(234 SHL 8)
+FDCBBD: AND ES:B[OFFSET RIY],127
+        jx 23
+FDCBBE: AND BYTE [BX],127
+        jx 23
+FDCBD4: OR ES:B[OFFSET RIY+1],4
+        jx 23
+FDCBD5: OR ES:B[OFFSET RIY],4
+        jx 23
+
+
+        ORG 0B7+(235 SHL 8)
+FDCBD6: OR BYTE [BX],4
+        jx 23
+FDCBDC: OR ES:B[OFFSET RIY+1],8
+        jx 23
+FDCBDD: OR ES:B[OFFSET RIY],8
+        jx 23
+FDCBDE: OR BYTE [BX],8
+        jx 23
+
+
+        ORG 0B7+(236 SHL 8)
+FDCBE4: OR ES:B[OFFSET RIY+1],16
+        jx 23
+FDCBE5: OR ES:B[OFFSET RIY],16
+        jx 23
+FDCBE6: OR BYTE [BX],16
+        jx 23
+FDCBEC: OR ES:B[OFFSET RIY+1],32
+        jx 23
+
+
+        ORG 0B7+(237 SHL 8)
+FDCBED: OR ES:B[OFFSET RIY],32
+        jx 23
+FDCBEE: OR BYTE [BX],32
+        jx 23
+FDCBF4: OR ES:B[OFFSET RIY+1],64
+        jx 23
+FDCBF5: OR ES:B[OFFSET RIY],64
+        jx 23
+
+
+        ORG 0B7+(238 SHL 8)
+FDCBF6: OR BYTE [BX],64
+        jx 23
+FDCBFC: OR ES:B[OFFSET RIY+1],128
+        jx 23
+FDCBFD: OR ES:B[OFFSET RIY],128
+        jx 23
+
+
+        ORG 0B7+(239 SHL 8)
+FDCBFE: OR BYTE [BX],128
+        jx 23
+
+
+        ORG 0B7+(240 SHL 8)
+FDCB94: AND ES:B[OFFSET RIY+1],251
+        jx 23
+FDCB95: AND ES:B[OFFSET RIY],251
+        jx 23
+
+
+        ORG 0B7+(241 SHL 8)
+FDCB6E: AND AH,0BF
+        TEST BYTE [BX],32
+        IF Z OR AH,040
+        jx 20
+FDCB7C: AND AH,0BF
+        TEST ES:B[OFFSET RIY+1],128
+        IF Z OR AH,040
+        jx 20
+
+
+        ORG 0B7+(242 SHL 8)
+FDCB5D: AND AH,0BF
+        TEST ES:B[OFFSET RIY],8
+        IF Z OR AH,040
+        jx 20
+FDCB5E: AND AH,0BF
+        TEST BYTE [BX],8
+        IF Z OR AH,040
+        jx 20
+
+
+        ORG 0B7+(243 SHL 8)
+FDCB4C: AND AH,0BF
+        TEST ES:B[OFFSET RIY+1],2
+        IF Z OR AH,040
+        jx 20
+FDCB4D: AND AH,0BF
+        TEST ES:B[OFFSET RIY],2
+        IF Z OR AH,040
+        jx 20
+
+
+        ORG 0B7+(244 SHL 8)
+FDCB3C: SAHF
+        SHR ES:B[OFFSET RIY+1],1
+        IF C JMP CARHIY
+        TEST ES:B[OFFSET RIY+1]
+        LAHF
+        jx 23
+
+
+        ORG 0B7+(245 SHL 8)
+FDCB1D: SAHF
+        RCR ES:B[OFFSET RIY],1
+        IF C JMP CARLWY
+        TEST ES:B[OFFSET RIY]
+        LAHF
+        jx 23
+FDCB1E: SAHF
+        mov ah,[bx]
+        RCR ah,1
+        IF C JMP CARBX
+        test bh,0c0
+        if nz mov [bx],ah
+        TEST ah,ah
+        LAHF
+        jx 23
+
+
+        ORG 0B7+(246 SHL 8)
+FDCB0C: SAHF
+        ROR ES:B[OFFSET RIY+1],1
+        IF C JMP CARHIY
+        TEST ES:B[OFFSET RIY+1]
+        LAHF
+        jx 23
+FDCB0D: SAHF
+        ROR ES:B[OFFSET RIY],1
+        IF C JMP CARLWY
+        TEST ES:B[OFFSET RIY]
+        LAHF
+        jx 23
+
+
+        ORG 0B7+(247 SHL 8)
+FDCB75: AND AH,0BF
+        TEST ES:B[OFFSET RIY],64
+        IF Z OR AH,040
+        jx 20
+FDCB76: AND AH,0BF
+        TEST BYTE [BX],64
+        IF Z OR AH,040
+        jx 20
+
+
+        ORG 0B7+(248 SHL 8)
+FDCB64: AND AH,0BF
+        TEST ES:B[OFFSET RIY+1],16
+        IF Z OR AH,040
+        jx 20
+FDCB65: AND AH,0BF
+        TEST ES:B[OFFSET RIY],16
+        IF Z OR AH,040
+        jx 20
+
+
+        ORG 0B7+(249 SHL 8)
+FDCB46: AND AH,0BF
+        TEST BYTE [BX],1
+        IF Z OR AH,040
+        jx 20
+FDCB54: AND AH,0BF
+        TEST ES:B[OFFSET RIY+1],4
+        IF Z OR AH,040
+        jx 20
+
+
+        ORG 0B7+(250 SHL 8)
+FDCB35: SAHF
+        SHL ES:B[OFFSET RIY],1
+        IF C JMP CARLWY
+        TEST ES:B[OFFSET RIY]
+        LAHF
+        jx 23
+FDCB36: SAHF
+        stc
+        mov ah,[bx]
+        rcl ah,1
+        IF C JMP CARBX
+        test bh,0c0
+        if nz mov [bx],ah
+        TEST ah,ah
+        LAHF
+        jx 23
+
+
+        ORG 0B7+(251 SHL 8)
+FDCB24: SAHF
+        SAL ES:B[OFFSET RIY+1],1
+        IF C JMP CARHIY
+        TEST ES:B[OFFSET RIY+1]
+        LAHF
+        jx 23
+FDCB25: SAHF
+        SAL ES:B[OFFSET RIY],1
+        IF C JMP CARLWY
+        TEST ES:B[OFFSET RIY]
+        LAHF
+        jx 23
+
+
+        ORG 0B7+(252 SHL 8)
+FDCB06: SAHF
+        mov ah,[bx]
+        ROL ah,1
+        IF C JMP CARBX
+        test bh,0c0
+        if nz mov [bx],ah
+        TEST ah,ah
+        LAHF
+        jx 23
+FDCB14: SAHF
+        RCL ES:B[OFFSET RIY+1],1
+        IF C JMP CARHIY
+        TEST ES:B[OFFSET RIY+1]
+        LAHF
+        jx 23
+
+
+        ORG 0B7+(253 SHL 8)
+CARLWY: TEST ES:B[OFFSET RIY]
+        STC
+        LAHF
+        jx 23
+
+
+        ORG 0B7+(254 SHL 8)
+DDCB94: AND ES:B[OFFSET RIX+1],251
+        jx 23
+DDCB95: AND ES:B[OFFSET RIX],251
+        jx 23
+DDCB6E: AND AH,0BF
+        TEST BYTE [BX],32
+        IF Z OR AH,040
+        jx 20
+
+
+        ORG 0B7+(255 SHL 8)
+DDCB7C: AND AH,0BF
+        TEST ES:B[OFFSET RIX+1],128
+        IF Z OR AH,040
+        jx 20
+DDCB5D: AND AH,0BF
+        TEST ES:B[OFFSET RIX],8
+        IF Z OR AH,040
+        jx 20
+
+
+        ORG 0B7+(189 SHL 8)
+DDCB5E: AND AH,0BF
+        TEST BYTE [BX],8
+        IF Z OR AH,040
+        jx 20
+DDCB4C: AND AH,0BF
+        TEST ES:B[OFFSET RIX+1],2
+        IF Z OR AH,040
+        jx 20
+
+
+        ORG 0B7+(188 SHL 8)
+DDCB4D: AND AH,0BF
+        TEST ES:B[OFFSET RIX],2
+        IF Z OR AH,040
+        jx 20
+
+
+        ORG 0B7+(187 SHL 8)
+DDCB3C: SAHF
+        SHR ES:B[OFFSET RIX+1],1
+        IF C JMP CARHIX
+        TEST ES:B[OFFSET RIX+1]
+        LAHF
+        jx 23
+DDCB1D: SAHF
+        RCR ES:B[OFFSET RIX],1
+        IF C JMP CARLWX
+        TEST ES:B[OFFSET RIX]
+        LAHF
+        jx 23
+
+
+        ORG 0B7+(186 SHL 8)
+DDCB1E: SAHF
+        mov ah,[bx]
+        RCR ah,1
+        IF C JMP CARBX
+        test bh,0c0
+        if nz mov [bx],ah
+        TEST ah,ah
+        LAHF
+        jx 23
+DDCB0D: SAHF
+        ROR ES:B[OFFSET RIX],1
+        IF C JMP CARLWX
+        TEST ES:B[OFFSET RIX]
+        LAHF
+        jx 23
+
+
+        ORG 0B7+(185 SHL 8)
+DDCB75: AND AH,0BF
+        TEST ES:B[OFFSET RIX],64
+        IF Z OR AH,040
+        jx 20
+DDCB76: AND AH,0BF
+        TEST BYTE [BX],64
+        IF Z OR AH,040
+        jx 20
+
+
+        ORG 0B7+(184 SHL 8)
+DDCB64: AND AH,0BF
+        TEST ES:B[OFFSET RIX+1],16
+        IF Z OR AH,040
+        jx 20
+DDCB65: AND AH,0BF
+        TEST ES:B[OFFSET RIX],16
+        IF Z OR AH,040
+        jx 20
+
+
+        ORG 0B7+(183 SHL 8)
+DDCB46: AND AH,0BF
+        TEST BYTE [BX],1
+        IF Z OR AH,040
+        jx 20
+DDCB54: AND AH,0BF
+        TEST ES:B[OFFSET RIX+1],4
+        IF Z OR AH,040
+        jx 20
+
+
+        ORG 0B7+(182 SHL 8)
+DDCB35: SAHF
+        SHL ES:B[OFFSET RIX],1
+        IF C JMP CARLWX
+        TEST ES:B[OFFSET RIX]
+        LAHF
+        jx 23
+DDCB36: SAHF
+        stc
+        mov ah,[bx]
+        rcl ah,1
+        IF C JMP CARBX
+        test bh,0c0
+        if nz mov [bx],ah
+        TEST ah,ah
+        LAHF
+        jx 23
+
+
+        ORG 0B7+(181 SHL 8)
+DDCB24: SAHF
+        SAL ES:B[OFFSET RIX+1],1
+        IF C JMP CARHIX
+        TEST ES:B[OFFSET RIX+1]
+        LAHF
+        jx 23
+DDCB25: SAHF
+        SAL ES:B[OFFSET RIX],1
+        IF C JMP CARLWX
+        TEST ES:B[OFFSET RIX]
+        LAHF
+        jx 23
+
+
+        ORG 0B7+(180 SHL 8)
+DDCB06: SAHF
+        mov ah,[bx]
+        ROL ah,1
+        IF C JMP CARBX
+        test bh,0c0
+        if nz mov [bx],ah
+        TEST ah,ah
+        LAHF
+        jx 23
+DDCB14: SAHF
+        RCL ES:B[OFFSET RIX+1],1
+        IF C JMP CARHIX
+        TEST ES:B[OFFSET RIX+1]
+        LAHF
+        jx 23
+
+
+        ORG 0B7+(179 SHL 8)
+CARHIY: TEST ES:B[OFFSET RIY+1]
+        STC
+        LAHF
+        jx 23
+
+
+
+        ORG 0FFEF
+        NOP
+
+END_EMUL:
+
+EMULATOR ENDS
+
