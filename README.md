@@ -13,3 +13,4 @@ As the emulator was written for DOS (I don't have the source for the later Windo
 - Microsoft Linker version 2.40 or 
 - Turbo Link version 5.1 (Turbo Link versions 1 to 3 all have difficulty linking the emulator)
 
+Gerton has kindly also allowed the code to be relicenced under the MIT license. I have left the older more restrictive header licenses in the individual files for historical reasons.
