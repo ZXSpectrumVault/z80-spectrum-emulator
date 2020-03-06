@@ -1,4 +1,4 @@
-# z80-spectrum-emulator
+# Z80 Spectrum Emulator for DOS
 
 Gerton Lunter's Z80 Spectrum Emulator for DOS was the premier ZX Spectrum emulator in the 1990s - heralding in the Z80 snapshot format as well as many other great features such as real tape support by way of a parallel adapter, 128K, Multiface, TAP and much more.
 
