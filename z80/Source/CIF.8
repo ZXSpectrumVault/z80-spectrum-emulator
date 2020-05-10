@@ -1,16 +1,8 @@
-;
-;   This file is part of the registered Spectrum emulator package 'Z80'
-;   version 2.01, and may not be distributed.  You may use this source for
-;   other PC based Spectrum or Z80 emulators only after permission.  It is
-;   however permitted to use this source file or parts thereof for Spectrum
-;   or Z80 emulators on non-PC based machines, provided that the source is
-;   acknowledged.
-;
-;                                                       Gerton Lunter, 3/5/93
-
 startup segment para public
 
-KR25:   TEST BYTE CS:BREAK              ;Eerste label van deze file!
+label2_at_para:
+
+KR25:   TEST BYTE CS:BREAK
         JNZ RET
         MOV BYTE CS:C_ACTIVE,0FF
         MOV BYTE CS:C_ACTION_CODE,0FF   ;ACTIVERING: EEN DRUK OP 'F10'
@@ -42,7 +34,9 @@ KR22:   TEST BYTE CS:BREAK
 KR23:   TEST BYTE CS:BREAK
         JNZ RET
         MOV BYTE CS:C_ACTIVE,0FF
-        MOV BYTE CS:C_ACTION_CODE,0F5   ;ACTIVERING: EEN DRUK OP 'F4' (JOYSTICK)
+        MOV BYTE CS:C_ACTION_CODE,0F5   ;ACTIVERING: EEN DRUK OP 'F4' (change)
+        test cs:b[in2_tab+7],2
+        if ne mov byte cs:c_action_code,0ea     ;ALT-F4 (joystick)
         RET
 
 KR24:   TEST byte CS:BREAK,0ff          ;F5: NMI / reset
@@ -51,8 +45,10 @@ KR24:   TEST byte CS:BREAK,0ff          ;F5: NMI / reset
         mov al,080                      ;reset
         jnz kr24_1
         mov al,0ff                      ;nmi
-        cmp byte cs:rommod,2
-        ja ret                          ;in 128 mode, nmi is useless
+;        cmp byte cs:rommod,4            ; ***** HMc MOD *****
+;        jc kr24_1                       ; ***** HMc *****
+;        cmp byte cs:rommod,6            ; ***** HMc *****
+;        jne ret                         ; ***** HMc *****
 kr24_1:
         MOV byte CS:NMI,al
         and cs:b[in2_tab+7],0fd         ;to let samram think symshift is up
@@ -68,6 +64,8 @@ KR27:   TEST BYTE CS:BREAK
         JNZ RET
         MOV BYTE CS:C_ACTIVE,0FF
         MOV BYTE CS:C_ACTION_CODE,0F1   ;ACTIVERING: EEN DRUK OP 'F7' (tape)
+        test cs:b[in2_tab+7],2
+        if ne mov byte cs:c_action_code,0e8     ;ALT-F7 (tape)
         RET
 
 kr28:   test byte cs:break
@@ -101,13 +99,11 @@ NODOUBLEC:
         JMP CALL_C_RETURN               ;ZIE Z80.8
 
 ENTER_C:
+        sti
         PUSHF
         CMP CS:DOUBLEC,0
         JNZ NODOUBLEC
         CALL SAVE_REGS
-        POPF
-        STI
-        PUSHF
         PUSH BX
         PUSH DS
         PUSH ES
@@ -133,6 +129,8 @@ ENTER_C:
         and es:w[0417],0fcf0            ;reset shift/alt/ctrl state
         PUSH ES:[0D*4]
         PUSH ES:[0D*4+2]
+        push es:[76]                    ; ***** HMc *****
+        push es:[78]                    ; ***** HMc *****
         PUSH ES:[32]
         PUSH ES:[34]
         PUSH ES:[36]
@@ -159,11 +157,6 @@ ENTER_C:
         xor ax,ax
         xchg AL,CS:C_ACTION_CODE
         push ax
-;        cmp al,0fd                      ;in 0 crash
-;        jnz noin0crash
-;        mov di,cs:temp_pc
-;        mov cs:rpc,di
-;noin0crash:
         CALL FAR _ENTRY                 ;ROEP 'C' AAN (ACTION CODE OP STACK)
         MOV CS:VALUE,AX                 ;BEWAAR TERUGGEGEVEN WAARDE (see call_c)
         POP AX                          ;CLEAR STACK
@@ -172,7 +165,7 @@ ENTER_C:
         OUT 042,AL
         IN AL,061
         MOV AH,CS:[IN31TAB+6]           ;0 OF 255 (NA RESP OUT 31,12 EN 13)
-        cmp byte cs:rommod,2                 ;samram?
+        cmp byte cs:rommod,3            ;samram?
         if nz xor ah,ah                 ;no, then keep quiet.
         NOT AH
         OR AH,CS:SILENCE
@@ -192,6 +185,7 @@ ENTER_C:
         MOV AL,AH
         OUT 040,AL
 no_tim_inst_2:
+        mov byte cs:lastvocbit,0
         XOR AX,AX
         MOV ES,AX
 ;        mov ax,cs:kstate
@@ -207,10 +201,10 @@ no_tim_inst_2:
         POP ES:[36]
         POP ES:[34]
         POP ES:[32]
+        pop es:[78]                     ; ***** HMc *****
+        pop es:[76]                     ; ***** HMc *****
         POP ES:[0D*4+2]
         POP ES:[0D*4]
-        STI
-        CALL INSTALL_COM
         CMP BYTE CS:MODFLG,0
         JE C_NOREAL
         cmp byte cs:iff,0
@@ -225,11 +219,12 @@ C_NOREAL:
         mov al,byte cs:maxtel
         dec al
         mov byte cs:inttel,al           ;next interrupt: trigger
-        push cs
-        call _pauze
+        STI
+        call waitfortimer
+        mov byte cs:readtypeahead,0ff   ;process keys in typeahead buffer
+        CALL INSTALL_COM
         MOV CS:DOUBLEC,0                ;and now interrupts are allowed again
         CALL GET_REGS
-        CALL IMMEDIATE_NMI
         POPF
         JMP CS:D[TRAPADR]               ;TERUG NAAR SPEC EMULATOR
 
@@ -245,7 +240,7 @@ COMPUTE_RRBIT7:
         OR AL,AH
         MOV AH,CS:B[OFFSET IN31TAB+1]   ;0FF ALS SAMRAM UIT
         NOT AH
-        cmp byte cs:rommod,2
+        cmp byte cs:rommod,3
         if nz xor ah,ah
         AND AH,010000XB
         OR AL,AH
@@ -526,7 +521,7 @@ border  dw ?
         MOV DS,CS:SPECSEG
         MOV ES,CS:VIDBUFSEG
 
-        cmp byte cs:rommod,3
+        cmp byte cs:rommod,4
         jb at_4000
         test byte cs:hstate,8           ;Is the screen at page 7?
         je at_4000                      ;Nope, page 5 is (fixed at 4000)
@@ -558,28 +553,9 @@ ALTER_ATTR:
         mov byte cs:newbor,ah
         MOV BYTE CS:BORCLR,0FF          ;NIET BESTAANDE BORDER COLOUR
         CALL VIDEO_UPDATE               ;DI EN SI WORDEN BEWAARD
+        call vgaborder_update           ;to get menu off of border
         pop ax
         mov byte cs:newbor,ah
-        cmp byte cs:gmod,5              ;vga
-        jnz updvid__end
-        mov ax,0b800
-        mov es,ax
-        mov di,4*40*2+4*2+32*2
-        mov cx,195
-        cld
-        mov ax,08800
-restore_border:
-        stosw
-        stosw
-        stosw
-        stosw
-        stosw
-        stosw
-        stosw
-        stosw
-        add di,64
-        loop restore_border
-updvid__end:
         leav
 
 ;
@@ -606,10 +582,7 @@ _INSTALL_ALL:
         ENTR
         CALL SAVE_C_VARS
         MOV DS,CS:SPECSEG
-        CALL HOESNEL
-        CALL RREG_INST
-        CALL LDIR_INST
-        CALL SILENCE_INST
+        call install_all
         LEAV
 
 ;
@@ -790,20 +763,33 @@ _BEEP:
 ;void pauze(void)
 ;
 _pauze:
+        push es
+        xor ax,ax
+        mov es,ax
+        mov ax,es:[046c]
+wait182:
+        cmp es:[046c],ax
+        je wait182
+        pop es
+        retf
+
+
+waitfortimer:
         cli
         in al,040
         in al,040
         mov bl,al
         sti
-wait182:
+wait182x:
         cli
         in al,040
         in al,040
         sti
         cmp al,bl
         mov bl,al
-        jbe wait182
-        retf
+        jbe wait182x
+        ret
+
 
 PAR_BLK:
         DW 0                    ;SEGMENT ADRES ENV. BLOK, 0=KOPIE V.H. OUDE
@@ -1075,7 +1061,7 @@ dtabuf  dd ?
         mov ah,01a
         int 021
         MOV AH,04E
-        MOV CX,031              ;normal + subdir
+        MOV CX,030              ;normal + subdir, no read-only files
         push cs
         pop ds
         mov dx,offset tapname
@@ -1093,6 +1079,7 @@ dtabuf2 dd ?
         ends
 
         entr
+findnext_again:
         lds dx,dtabuf2
         mov ah,04f
 findnext_2:
@@ -1104,7 +1091,7 @@ findnext_2:
         MOV AX,2                ;r/w
         MOV AH,03D
         INT 021
-        IF C MOV AX,0
+        jc findnext_again
 findnext_end:
         leav
 
@@ -1247,6 +1234,7 @@ speed   dd ?
         rcl byte cs:mflag,1
         lds si,speed
         call haalpromille
+        mov cs:_curspd,ax
         call speed_convert
         leav
 
@@ -1280,6 +1268,8 @@ setupsaveload:
         mov byte cs:keyscan,1
         sti
         in al,021
+        mov ah,cs:newbor
+        mov byte cs:newbor,0    ;non-save colors
         push ax
         or al,1+8+16            ;alleen keyboard overhouden (geen timer, com1 of 2)
         out 021,al
@@ -1344,7 +1334,7 @@ sa_leader:
         NOP
         nop
         nop
-        ORG (($-kr25) AND 0FFFC)
+        ORG label2_at_para+(($-label2_at_para) AND 0FFFC)
 sa_leader2:
         nop
         loop sa_leader2
@@ -1359,7 +1349,7 @@ sa_leader2:
         NOP
         nop
         nop
-        ORG (($-kr25) AND 0FFFC)
+        ORG label2_at_para+(($-label2_at_para) AND 0FFFC)
 sa_sync_1:
         nop
         loop sa_sync_1
@@ -1370,7 +1360,7 @@ sa_sync_1:
         NOP
         nop
         nop
-        ORG (($-kr25) AND 0FFFC)
+        ORG label2_at_para+(($-label2_at_para) AND 0FFFC)
 sa_sync_2:
         nop
         loop sa_sync_2
@@ -1403,7 +1393,7 @@ sa_bit_2:
         NOP
         nop
         nop
-        ORG (($-kr25) AND 0FFFC)
+        ORG label2_at_para+(($-label2_at_para) AND 0FFFC)
 sa_bit_1:
         nop
         loop sa_bit_1
@@ -1414,7 +1404,7 @@ sa_bit_1:
         NOP
         nop
         nop
-        ORG (($-kr25) AND 0FFFC)
+        ORG label2_at_para+(($-label2_at_para) AND 0FFFC)
 sa_set: nop
         loop sa_set
 sa_out: call far overscan
@@ -1453,6 +1443,7 @@ returnsaveload:
         mov byte cs:modflg,0
         pop ax
         out 021,al
+        mov cs:newbor,ah
         mov al,byte cs:keyscan
         and al,12
         cmp al,4
@@ -1511,8 +1502,9 @@ _loadblock:
         mov cs:tcstgap,dx       ;465 T
         mov ah,0f
         call far overscan
-        mov dx,cs:tapeio
-        in al,dx
+;        mov dx,cs:tapeio
+;        in al,dx
+        call getsample
         and al,080
         or al,2
         mov bl,al
@@ -1529,7 +1521,7 @@ ldwait: mov cx,cs:cxloop
         NOP
         nop
         nop
-        ORG (($-kr25) AND 0FFFC)
+        ORG label2_at_para+(($-label2_at_para) AND 0FFFC)
 ldw2:   nop
         loop ldw2
         dec bh
@@ -1567,7 +1559,7 @@ ldloop: mov al,cs:[offset rafa+1]
         jz ldverify             ;F' = NC
         mov dx,bx
         mov bx,cs:rix
-        cmp bx,04000
+        cmp bx,04000            ;Use real mode to load from tape into <16384 ram
         jb ld_inrom
         mov b[bx],ah
 ld_inrom:
@@ -1625,20 +1617,21 @@ ldedge1:
         NOP
         nop
         nop
-        ORG (($-kr25) AND 0FFFC)
+        ORG label2_at_para+(($-label2_at_para) AND 0FFFC)
 lddelay:
         nop
         loop lddelay
         pop cx
-        mov dx,cs:tapeio
+;        mov dx,cs:tapeio
         NOP
         nop
         nop
-        ORG (($-kr25) AND 0FFFC)
+        ORG label2_at_para+(($-label2_at_para) AND 0FFFC)
 ldsample:
         test cs:keyscan,2
         jnz ret                 ;ZF=0, CF=0 als key pressed
-        in al,dx
+;        in al,dx
+        call getsample          ;in miscp1.8
         xor al,bl
         add al,al
         jc ldedge
@@ -1662,7 +1655,7 @@ ldedge:
         NOP
         nop
         nop
-        ORG (($-kr25) AND 0FFFC)
+        ORG label2_at_para+(($-label2_at_para) AND 0FFFC)
 edge_delay:
         nop
         loop edge_delay
@@ -1742,6 +1735,20 @@ close_tapefiles:
 nothingtoclose:
         pop ds
         ret
+
+;
+;update_regs_save(void);
+;
+_update_regs_save:
+        mov cs:rpc,05e2
+        mov ax,cs:rde
+        inc ax
+        add cs:rix,ax
+        mov cs:rde,0ffff
+        mov cs:rbc,0e
+        mov cs:rhl,0
+        mov cs:b[offset rfa],0
+        retf
 
 ;
 ;savediskblock(start,length,afpair,tapeouth,extrabytes,chksm);
@@ -2016,6 +2023,28 @@ pars    dw ?
         if c xor ax,ax
         leav
 
+
+;
+;void memfree(int)
+;
+_memfree:
+        push bp
+        mov bp,sp
+
+        strc
+pars    dw ?
+        ends
+
+        entr
+        push es
+        mov ax,pars
+        mov es,ax
+        mov ah,049
+        int 021
+        pop es
+        leav
+
+
 ;
 ;int lseek(int,unsigned int*,unsigned int*,char)
 ;
@@ -2092,6 +2121,10 @@ GET_C_VARS:
         MOV _TAPEIF,AL
         MOV AX,CS:TAPEIO
         MOV _TAPEIO,AX
+        mov al,cs:debugflg
+        mov _debugflg,al
+        mov ax,cs:debugadr
+        mov _debugadr,ax
         mov al,cs:b[ramstate]
         mov _romstate,al
         MOV BYTE CS:KEMPSTON_STATE,0
@@ -2168,10 +2201,12 @@ SAVE_C_VARS:
         MOV CS:TAPEIF,AL
         MOV AX,_TAPEIO
         MOV CS:TAPEIO,AX
+        mov al,_debugflg
+        mov cs:debugflg,al
+        mov ax,_debugadr
+        mov cs:debugadr,ax
         mov al,_winkey
         mov cs:winkey,al
-        MOV AL,b[offset _IMMNMI]
-        MOV CS:IMMNMI,AL
         mov al,_rommod
         mov cs:rommod,al
         mov cx,16
@@ -2271,7 +2306,8 @@ handlew dw ?
 ;pages resp. 2,8,5,3. So page 2 is copied to page 4, and 3 to 5.
 ;If 48 is switched to 128, then, if no reset, the reverse is done, and
 ;the second rom is activated. If the 128 is to be reset, then the first
-;rom is paged.
+;rom is paged. (But all this changed a bit with version 3)
+;ROMMOD: 0=norm,1=if1,2=sam,3=mgt,4=128,5=128+if1,6=128+mgt
 ;
 _init_emulmode:
         push bp
@@ -2283,20 +2319,33 @@ reset   dw ?
         ends
 
         entr
-        mov ax,emod
-        cmp al,2
-        if a inc al                     ;0,1,2,4,5
+        mov word cs:vgahcrscroffset,0
+        mov ax,reset
+        mov cs:reset_romarea,al         ;Clean ram of multiface if asked for
+        mov ax,emod                     ; AL=mode to go to
+;        cmp al,2                       ; ***** HMc REM *****
+;        if a inc al                    ;0,1,2,4,5  ***** HMc REM *****
         mov ah,cs:rommod
-        cmp ah,2
-        if a inc ah                     ;0,1,2,4,5
-        and ax,0606
-        cmp al,ah
-        if z jmp iem_nochange           ;if only if1 switched on/off, nochange
-        mov byte cs:if1flg,0            ;if1 rom not paged
+;        cmp ah,2                       ; ***** HMc REM *****
+;        if a inc ah                    ;0,1,2,4,5  ***** HMc REM *****
+;        and ax,0606                    ; ***** HMc REM *****
+;        cmp al,ah                      ; ***** HMc REM *****
+;        if z jmp iem_nochange          ;if only if1 switched on/off, nochange
         cmp al,2
+        if e mov al,8                   ;0,1,3:48k; 4,5,6:128k, 8:samram
+        cmp ah,2
+        if e mov ah,8
+        and ax,0c0c
+        cmp al,ah                       ;Only change to peripheral hardware?
+        if z jmp iem_nochange           ; Then don't shuffle ram pages
+        mov byte cs:if1flg,0            ;if1 rom not paged
+        mov word cs:discflg,0           ;disciple not paged. This also clears M128FLG!
+        mov word cs:rompage1,-1         ;All of lower 16K is ROM
+        mov ax,emod
+        cmp al,3                        ;if going to 48K or sam
         if be jmp iem_to48k
         mov ax,0108                     ;copy page 4/5 (norm) to page 5/3 (128)
-        call swap_mem
+        call swap_mem                   ; because going from 48k/sam to 128k
         mov ax,0303
         call swap_mem
         mov ax,0205
@@ -2331,7 +2380,7 @@ reset   dw ?
         leav
 iem_128_reset:
         mov byte cs:hstate,0            ;store page layout
-        mov word cs:rpc,0                    ;and reset
+        mov word cs:rpc,0               ;and reset
         mov ax,2
         call swap_mem
         leav
@@ -2339,32 +2388,46 @@ iem_nochange:
         mov ax,emod
         cmp cs:rommod,al
         mov cs:rommod,al
-        jz iem_same
-        push cs
-        pop es                          ;for pagin_n_rom_far
-        cmp byte cs:if1flg,0            ;if1 rom paged?
-        if nz call far pagin_n_rom_far
-        mov al,0ff
-        cmp byte cs:rommod,0            ;mode: norm (no if1)
-        if z xor al,al
-        cmp byte cs:rommod,3            ;mode: 128 (no if1)
-        if z xor al,al
+        jne iem_different
+        cmp cs:rommod,3                 ;if disciple, proceed for sure;
+        je iem_different                ; the type could have been changed
+        cmp cs:rommod,6
+        if ne jmp iem_same
+iem_different:
+        mov byte cs:if1flg,0            ;if1 rom not paged
+        mov word cs:discflg,0           ;disciple not paged. This also clears M128FLG!
+        mov word cs:rompage1,-1         ;all ROM
+        call load_romfile
+        xor ax,ax
+        cmp byte cs:rommod,1            ;mode: 48k + if1
+        if z dec al
+        cmp byte cs:rommod,2            ;mode: samram
+        if z dec al
+        cmp byte cs:rommod,5            ;128k + if1
+        if z dec al
+        cmp byte cs:rommod,3            ;48k + mgt
+        if z dec ah
+        cmp byte cs:rommod,6            ;128k + mgt
+        if z dec ah
         mov byte cs:if1_on,al
+        mov byte cs:disc_on,ah
         cmp reset,0
         jz iem_same
         mov word cs:rpc,0
         mov ax,2
         cmp cs:rommod,2
         if b xor al,al
+        cmp byte cs:rommod,3
+        if z xor al,al
         call swap_mem
         mov ax,0108
         call swap_mem
         mov ax,0205
-        cmp cs:rommod,2
+        cmp cs:rommod,3                 ;HMc
         if be mov al,4
         call swap_mem
         mov ax,0303
-        cmp cs:rommod,2
+        cmp cs:rommod,3                 ;Hmc
         if be mov al,5
         call swap_mem
         mov byte cs:hstate,0
@@ -2376,13 +2439,11 @@ l1:     mov cs:b[bx],0
 iem_same:
         leav
 iem_to48k:
-        push ax
         push cs
         pop es                          ;for pagin_n_rom_far
         cmp byte cs:if1flg,0            ;if1 rom paged?
         if nz call far pagin_n_rom_far
-        pop ax
-        cmp ah,2
+        cmp cs:rommod,3
         jbe iem_to48k_from48k
         push ds
         mov al,cs:b[offset ramstate+3]
@@ -2407,12 +2468,12 @@ iem_to48k:
         mov si,0c000
         mov di,08000
         mov cx,02000
-dont_copy:
         rep movsw                       ;copy page [3] to page 5
+dont_copy:
         pop ds                          ;(works only if [3]<>4)
 iem_to48k_from48k:
         mov ax,0108                     ;page layout for samram in basic and
-        call swap_mem                   ;normal spectrum
+        call swap_mem                   ; normal spectrum
         mov ax,0204
         call swap_mem
         mov ax,0307                     ;shadow ram
@@ -2450,11 +2511,10 @@ nmireset dw ?
         ends
 
         mov ax,nmireset                 ;0x80 or 0xff; see kr24
-        dec al
         MOV byte CS:NMI,al
         and cs:b[in2_tab+7],0fd         ;to let samram think symshift is up
-        cmp word cs:trapadr,offset emulate
-        if z mov word cs:trapadr,offset irupt        ;segment already OK
+        cmp word cs:trapadr,offset emulate_0    ;if not wait max. 1/50 s.
+        if z mov word cs:trapadr,offset gen_timinter    ;segment already OK
 weird_address:
         pop bp
         retf
@@ -2463,7 +2523,7 @@ weird_address:
 ;void select_page5(void)
 ;
 _select_page5:
-        cmp byte cs:rommod,3
+        cmp byte cs:rommod,4            ;Hmc
         jb >l1
         test byte cs:hstate,8
         je >l1
@@ -2620,5 +2680,91 @@ del_finished:
         leav
 
 
+;
+;unsigned long voc_position(void)
+;
+_voc_position:
+        push bp
+        entr
+        push cs
+        pop ds
+        push cs
+        pop es
+        call compute_position
+        push ax                         ;save seconds
+        mov ax,bx                       ;10000s
+        xor dx,dx
+        mov cx,100
+        div cx                          ;ax=100s
+        mov bx,ax
+        pop ax
+        mul cx
+        add ax,bx
+        adc dx,0                        ;dxax=position in 100s of seconds
+        leav
+
+;
+;These two subroutines are needed because I divide long integers in XTRA.C
+;
+f_lumod@:
+        push bp
+        mov bp,sp       ;bp -> bp/ret/ret/divident/divident/divisor/divisor
+        mov ax,[bp+6]
+        mov dx,[bp+8]
+        mov cx,[bp+10]  ;forget hi part, won't need it
+        div cx
+        mov ax,dx
+        xor dx,dx
+        pop bp
+        retf 8
+
+f_ludiv@:
+        push bp
+        mov bp,sp       ;bp -> bp/ret/ret/divident/divident/divisor/divisor
+        mov ax,[bp+6]
+        mov dx,[bp+8]
+        mov cx,[bp+10]  ;forget hi part, won't need it
+        div cx
+        xor dx,dx
+        pop bp
+        retf 8
+
+f_lxmul@:
+        push si
+        xchg si,ax
+        xchg dx,ax
+        test ax
+        if ne mul bx
+        jcxz f_lx_cx0
+        xchg cx,ax
+        mul si
+        add ax,cx
+f_lx_cx0:
+        xchg si,ax
+        mul bx
+        add dx,si
+        pop si
+        retf
+
+;
+;int windvoc(unsigned int)
+;
+_windvoc:
+        push bp
+        mov bp,sp
+
+        strc
+posn    dw ?
+        ends
+
+        entr
+        mov ax,posn
+        push cs
+        pop ds
+        push cs
+        pop es
+        call windvoc
+        leav
+
+
 startup ends
-

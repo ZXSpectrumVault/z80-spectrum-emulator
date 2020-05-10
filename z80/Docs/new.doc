@@ -1,16 +1,159 @@
-Sinclair ZX Spectrum Emulator 'Z80' v2.01a  -  20/5/93  -  by G.A. Lunter
+Sinclair ZX Spectrum Emulator 'Z80' v3.04  -  10/8/96  -  by G.A. Lunter
 
 
 
 Additions to the Spectrum Emulator, from the the first version that
 was released, version 1.20.    (*) = only available to registered users.
 Names between brackets are games that first indicated the presence of
-the corresponding bug in the Z80 emulator.
+the corresponding bug in the emulator, or people that spotted the bug.
 
-28/6/93         Version 2.01b released (Registered users only)
 
-         (*)  - Minor .TAP file bug fixed.
-              - Files now closed correctly
+
+10/8/96         Version 3.04 released
+
+              - Supports .SLT 'Super Loader Trap' files with level data and
+                loading screens.  Added utility ADDDAT.
+              - Much better keyboard handling and speed measuring in DOS
+                boxes running under Windows (95)
+          (*) - Added utility READSB to read .VOC sample files from
+                SoundBlaster compat. sound card, and digitally filter them.
+                This finally enables reliable loading via a SoundBlaster.
+          (*) - Bugfix: Disciple snapshots don't overwrite old data anymore
+              - Needs 16K less memory: fast/full/minimal (default,-xt,-xu):
+                564K, 517K, 481K; uses 240K less base memory if Extended
+                Memory is present.  No support anymore for Extended
+                Hercules and Plantronics video modes.
+          (*) - Switch -00 added, to suppress pause at intro screen
+              - Z80 now ejects paper from laserprinters when ZX Printing.
+                (switch -0f N)
+              - Added tech info about ZX Printer, AY-3-8912 sound chip, and
+                Spectrum 128 internals.
+          (*) - VOC files are high-pass filtered when played back, to make
+                loading less sensitive to 50 Hz component.
+              - Support for 2nd analogue joystick as Sinclair 1 joystick
+                added.
+              - The emulator returns 'No ZX Printer attached' if the output
+                printer is not there or off-line; previously the emulator
+                hang on a COPY with no printer to print to. Switch -xj
+                added.  (Lords of Midnight, SuperSpy)
+              - Added -xy trace feature
+              - Added -0m opcode mapping feature, for use with (a future
+                version of) Leslie Styles' disassembler DSNA
+              - Switch -kx added, for custom remapping of keyboard.
+              - Addresses are entered as decimal numbers by default now;
+                hex can be used by prefixing the address with a # or $
+                sign.
+              - Added explanation of Break Points in documentation (section
+                2.21) (Douglas Paulley)
+              - Novell broadcasts are disabled (Damion Yates)
+              - Timer routine made faster.
+          (*) - Bugfix: Disciple/+D track buffer bug fixed.
+              - Bugfix: SoundBlaster is properly turned off at exit
+              - Bugfix: RES/SET opcodes can't change ROM anymore (Catch23
+                and Batman, the Capped Crusade; thanks to Gerardo Oporto
+                Jorrin)
+              - Bugfix: CTRL-ENTER when loading snapshot now also keeps
+                part of hardware mode fixed.
+              - Opcode for loading levels is ED FB, not ED F6 as the
+                documentation said previously. (Russell Marks)
+              - Bugfix: Loading snapshot saved in +D hardware mode with no
+                PLUSDROM.BIN file present does not return Z80 to DOS
+                anymore.
+              - Bugfix: settings are read correctly from snapshot file
+                specified on command line.
+              - Bugfix: '128 I/O ports are decoded properly (Three Weeks in
+                Paradise 128; Tomaz Kac)
+
+
+
+29/12/94        Version 3.03 released
+
+         (*)  - OUT2VOC now also handles 128k soundchip output.
+         (*)  - TAP2VOC can now produce raw sample files.
+              - Bugfix: Mouse and analogue joystick work together and
+                properly. (Niccolo Rigacci)
+              - Improved Hi Color Resolution emulation; the emulator uses
+                different timings in 128K modes, and locks in on memory
+                pushes to synchronise.  Most programs that use HCR effects
+                work correctly now.
+              - Bugfix: Without EMS memory, Multiface 128 did not work.
+              - Small error fixed and explanation added in DOC about new
+                .Z80 file headers (Arnt Gulbrandsen).
+              - Added: Switch to turn off Hi Color Resolution emulation
+                completely; this saves another 40K over -xt.
+              - Added: Program counter tracing feature.
+              - Added: Information in documentation on Spectrum 128 video
+                timings, and interrupt timings.
+              - In 128 mode, out address 7FFD is decoded using only A15
+                (and low order byte), making at least one problem program
+                run. (Igor 'Iggy' Eged)
+
+
+
+3/11/94         Version 3.02 released
+
+              - Bugfix: Without EMS memory, a Spectrum error with IF1 on
+                locked the emulator or generated an 'IN 0 crash'.
+         (*)  - Bugfix: OUT2VOC did not work properly for long samples.
+
+
+
+28/10/94        Version 3.01 released
+
+              - Bugfix: The ZX Printer code for Epson printer was faulty.
+              - The phone number for B.G. Services in Z80.DOC was wrong.
+              - The emulator can now log Z80 OUTs to any I/O port in a .OUT
+                file, with timing information.
+         (*)  - Added utility (OUT2VOC) to translate .OUT log files into
+                .VOC sound sample files, for recording music and SAVEing
+                directly to a .VOC file.
+              - Added a new section to the documentation about the Disciple
+                and +D interfaces.
+              - Added section about the OUT2VOC utility.
+
+
+
+20/10/94        Version 3.00 released
+
+         (*)  - Disciple and Plus D disk interface emulation
+              - ZX Printer support, for Epson and HP Laserjet compatibles
+              - Emulation of hi-resolution color and border effects, using
+                exact timing.
+              - Multiface 128 emulation; useful to load M128 snaps without
+                corrupting the screen
+              - Mouse support, controlling either Spectrum joysticks or the
+                AMS Mouse interface (supported by e.g. Art Studio)
+              - A number of improvements and bugfixes of the Z80 processor
+                emulation code, solving several problems with turbo
+                loaders, most notably Ocean's.
+              - All instructions emulated, including unofficial DDCB and
+                FDCB ones, and all unofficial ED instructions.  Most
+                unofficial flags emulated.
+              - User defined joystick support
+         (*)  - VOC file support - read programs stored in sound sample files
+         (*)  - Emulator can read in real mode from SoundBlaster port
+              - Faster code using 386+ instructions for VGA mode
+              - Switch to remove info window when saving or loading
+              - Emulator can set breakpoints at any address, invisible to
+                the running program.
+              - Can save any part of Spectrum memory to disk, and load it
+                back in memory.
+         (*)  - Utility to read a sound sample from the standard LPT tape
+                interface, or the SoundBlaster, in a .VOC file
+         (*)  - Utility to convert .TAP files to .VOC files
+              - One-key joystick mode change, with ALT F4.
+              - Improved emulation of 'floating bus' (try Arkanoid)
+         (*)  - Bugfix Z802TAP; sometimes blocks got corrupted.
+              - Bugfix: Digital Zandbergen joystick didn't work.
+              - Multi-level support, in the same way as implemented in XZX
+                version 0.5.2
+              - Bugfix: MOVE from cartridge to another cartridge didn't
+                work, due to buffering problems. (Martin Smith)
+              - Bugfix: Several problems with the keyboard when running
+                under Windows are solved.
+              - Bugfix: R register doesn't change when going to main menu.
+              - Better sound quality, and no border interference anymore in
+                Real Mode when playing music.
 
 
 
@@ -49,7 +192,7 @@ the corresponding bug in the Z80 emulator.
               - VGA support, fast screen update and accurate colours
                 including bright,
               - Z80 emulation nearly perfect, including emulation of
-                inofficial flags and undocumented features. Timing of
+                unofficial flags and undocumented features. Timing of
                 individual instructions is made much more accurate on fast
                 computers, while maintaining maximum possible speed on slow
                 ones,
@@ -123,13 +266,13 @@ the corresponding bug in the Z80 emulator.
          (*)  - A utility to read DISCiPLE floppies.
               - The analogue IBM joystick and a special interface for
                 digital (Spectrum) joysticks are supported. In the
-                documentationfile is a diagram for the digital joystick
+                documentation file is a diagram for the digital joystick
                 interface.
               - A more extensive manual, and a summary for English-
                 speaking users.
               - Speed measurement of the Z80 emulator is more accurate.
                 (V1.20 overestimated the speed.)
-              - Functionkeys F1-F7 and F10 are now used.
+              - Function keys F1-F7 and F10 are now used.
               - The Emulator can run in 'Real'-mode, for better sound
                 and for tape (speed-)load and save.
               - R register emulation is now perfect, so that protected
@@ -148,7 +291,7 @@ the corresponding bug in the Z80 emulator.
                 menu: the cursor keys, PgUp and PgDn can be used to
                 browse through the list of files, and letter-keys make
                 the bar jump to the first file that starts with that
-                letter. The files are now alphabetically ordened.
+                letter. The files are now alphabetically ordered.
               - Sinclair joystick 1 added (keys 1-5)
               - If a path is entered at the command line, the Emulator
                 automatically jumps to the main menu, option 'load
@@ -164,7 +307,7 @@ the corresponding bug in the Z80 emulator.
               - Bugfix: On AT's the Emulator crashed if Spectrum programs
                 used interrupt mode 2 while the I register was 255.
                 (Full Throttle)
-              - Inofficial flags are now emulated better. (Ghost'n Goblins)
+              - Unofficial flags are now emulated better. (Ghost'n Goblins)
          (*)  - Extra utility CONVZ80, converts .Z80 files in .SP and
                 .SNA files, the snapshot formats of the Spanish Spectrum
                 emulator VGASPEC and the Norwegian Spectrum emulator JPP
@@ -195,4 +338,4 @@ the corresponding bug in the Z80 emulator.
                 (First, entirely Dutch version.)
 
 
-
+

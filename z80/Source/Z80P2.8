@@ -1,3 +1,20 @@
+;
+; Memory structure: _first_func is first label in first segment of program
+;                   It starts at PSP+0100h, or seg PSP+010h
+;                   Then rest, including stack.
+;                   Then emulator segment of 64K, packed on disk
+;                   Then 01b00 of introscreen data (in seg 'codf', not 'code',
+;                        to persuade the linker to put the data at the end)
+; Free memory: disciple buffer (used during startup to load z80.ini file)
+;              vga buffers and tables (overlay other screen tables completely)
+; During startup the intro screen is moved up in memory into temporary
+;   memory block (introscrseg) which is freed before other memory is allocated
+;   After loading the .INI file the intro screen is moved into the Disciple
+;   buffer.
+;
+
+xherc   equ 0
+plant   equ 0
 
 MAIN:   PUSH DS
         PUSH CS
@@ -16,7 +33,7 @@ MAIN:   PUSH DS
         PUSH DS
         MOV AX,SEG _FIRST_FUNC
         MOV BX,SEG emulate
-        ADD BX,01500                    ;16K + NOGWAT + 64K
+        ADD BX,01000+0400+01b0+0100     ;64k + 16K + screen + bit extra
         SUB BX,AX
         PUSH DS
         POP ES
@@ -26,11 +43,22 @@ MAIN:   PUSH DS
         call calcchecksum
         CMP CS:ROMADR,0
         IF Z JMP SCRUNGEIT
+        mov bx,01b0                     ;temporary storage for intro screen
+        mov ah,048                      ;get memory
+        int 021
+        if c jmp not_enough
+        mov cs:introscrseg,ax
+        mov es,ax
         MOV AX,SEG OPC0
         MOV DS,AX
-        MOV ES,AX
-        std
         MOV SI,CS:ROMADR
+        cld
+        xor di,di
+        mov cx,01b00
+        rep movsb
+        mov si,cs:romadr
+        mov es,ax
+        std
         DEC SI
         MOV DI,0FFEE
         MOV CX,0FFEF
@@ -130,9 +158,15 @@ FIXUP3: POP DS
         MOV TTYPE,0          ;GEEN PLANTRONICS TERM. TYPE GESCAND
         MOV DOUBLE,0         ;NORMALE IRUPT SNELHEID
         MOV mflag,0          ;fast r register emulation; fast ldir emulation
+        mov coloremu,0       ;no hi color resolution emulation
+        mov _usercoloremu,0
+        mov linecounter,1
+        mov viertel,2        ;to make sure hi res vars are inited 1st time
         MOV FLASH,0          ;GEEN FLASH EMULATIE
         MOV HERCFLG,0        ;GEEN HERCULES
+#if xherc
         MOV XTDHERC,0        ;GEEN XTD HERCULES
+#endif
         MOV CGA,0            ;GEEN CGA
         MOV EGA,0            ;GEEN EGA
         mov vga,0
@@ -143,7 +177,6 @@ FIXUP3: POP DS
         mov cmschips,0       ;Do not use CM/S chips on soundblaster
         mov intsnd,0ff       ;128 sound through internal speaker if no adlib
         MOV ISSUE2,0         ;GEEN ISSUE 2 GEEMULEERD
-        MOV IMMNMI,0         ;GEEN IMMEDIATE NMI
         MOV OUTMODE,0        ;RS232 <-> NIETS (VOOR DEF ZIE LOAD_ROMS)
         MOV OUTNUM,0         ;LPT1
         MOV INMODE,0         ;RS232 <-> NIETS
@@ -152,18 +185,22 @@ FIXUP3: POP DS
         MOV JOYMODE,0        ;CURSOR JOYSTICK
         MOV KEMPSTON_STATE,0 ;JOYSTICK IN MIDDENSTAND
         MOV ZANDJOY,0FF      ;AUTODETECTIE ZANDJOY & ANALOGE JOYSTICK
+        mov msmouse,0
+        mov _tapewindow,0ff
         mov curs128,0
         MOV TAPEIF,1
         MOV SYNCMOD,2        ;STANDAARD VIDEO SYNC.
         MOV KEYSCAN,0        ;NORMALE KEYBOARD SCANNING
         MOV SPCTEL,0         ;ZIE LOAD_BLOCK IN CIF.8
-        mov tstates,-17470
+        mov _tstates,224     ;or 17472
+        mov _tstatehi,0
+        mov _lasttlo,224
+        mov _lastthi,0
         mov expmem,0ff       ;try to use expanded memory
         mov ax,01600
         int 02f
         and al,07f           ;00 or 80: Windows not running
-        if nz mov al,0ff
-        mov winkey,al
+        mov winkey,al        ;Nonzero = Windows running (version number)
         mov comsdat,0
         mov comsclk,0
         mov readwrt,0
@@ -182,10 +219,11 @@ FIXUP3: POP DS
         MOV GETOUT,OFFSET OUTBUF
         MOV PUTIN,OFFSET INBUF
         MOV GETIN,OFFSET INBUF
-        MOV CS:RFA,-1           ;TIJDELIJK, VOOR INSTELLING SNELHEID
+        MOV CS:_curspd,5000
         MOV CS:ATRADR,ATTRP1
         POP DS
-        MOV bX,01000+011+(stack_size)/8        ;64K for emulator, 0100 PSP
+;        MOV bX,01000+011+(stack_size)/8        ;64K for emulator, 0100 PSP
+        mov bx,01000+011                    ;do not include screen!
         ADD bX,SEG emulate
         sub bx,SEG _FIRST_FUNC
         MOV CS:PROGSEG,DS
@@ -200,8 +238,6 @@ FIXUP3: POP DS
         if z mov ax,03f8
         inc ax
         mov cs:tapeio,ax
-        cmp cs:winkey,0
-        jne getspd_windows
         mov ah,048
         mov bx,01000            ;Allocate temporary 64K chunk to emulate in
         int 021
@@ -218,20 +254,19 @@ FIXUP3: POP DS
         ADC DX,0
         SUB AX,SI               ;TREK BEGINPC HIERVAN AF
         SBB DX,0
-        jmp getspd_continue
-getspd_windows:
-        mov cs:cxloop,3574
-        mov cs:bxcst,894
-        mov cs:inloop,1729
-        mov ax,44000
-        xor dx,dx
-getspd_continue:
         shl ax,1
         rcl dx,1
-        cmp dx,52               ;52*65536/88 approx 40000, 4000.0% is max
+        cmp dx,87               ;max approx 6553.6 %
         if a jmp too_fast
         MOV CX,88
         DIV CX
+        cmp cs:winkey,0
+        je getspd_ok            ;Normal DOS environment
+        cmp cs:winkey,4
+        jae getspd_ok           ;Windows 95 DOS box: also OK
+        shr ax,1                ;For unknown reason, measuring bxcst does not
+        mov cs:bxcst,ax         ; work properly in Windows 3.1 DOS box
+getspd_ok:
         MOV BX,CS
         MOV DS,BX
         PUSH AX
@@ -283,8 +318,10 @@ getspd_continue:
         mov ax,03d00
         int 021
         jc ini_not_found
-        mov dx,offset vga_workspace     ;over 4K of workspace
+        mov dx,offset DISCiPLEBuffer
         mov bx,ax
+        mov ax,seg DISCiPLEBuffer
+        mov ds,ax
         mov cx,8000
         mov ah,03f
         int 021
@@ -293,7 +330,7 @@ getspd_continue:
         jz ini_not_found
         cmp ax,8000
         jz ini_too_long
-        mov si,offset vga_workspace
+        mov si,offset DISCiPLEBuffer
         mov bx,ax
         mov b[si+bx],01a
         mov bx,1                ;line counter
@@ -445,8 +482,13 @@ CALLOPTION:
 OPLIST: DW 'N',PNORM,'S',PSAMR,01F,PHELP,'D',PDOUBLE,'R',PRREG,'F',PFLSH
         DW 'L',PLDR,'H',PHERC,'X',PXXX,'C',PCGA,'G',PSILENCE,'O',PSERN
         DW 'I',PISERN,'A',PPARN,'W',PFILEOUT,'U',PFILEIN,'E',PEGA,'T',PTTAPE,
-        DW 'V',PVGA,'P',PPLANT,'Q',PQPLANT,'K',PJINPUT,'J',PJOYSTICK,'Z',PSPEED
-        DW 012,PISSUE2,'Y',PSYNC,'B',PTAPE,'M',PMDRV,011,P128,0
+        DW 'V',PVGA
+#if plant
+        dw 'P',PPLANT,'Q',PQPLANT
+#endif
+        dw 'K',PJINPUT,'J',PJOYSTICK,'Z',PSPEED
+        DW 012,PISSUE2,'Y',PSYNC,'B',PTAPE,'M',PMDRV,011,P128,010,DISCOPTS
+        DW 019,PMGT,0
 
 PHELP:  MOV DX,HELPMES
         push cs
@@ -464,8 +506,20 @@ PHELP:  MOV DX,HELPMES
         mov ah,9
         int 021
         popf
+        pushf
         if z call helpkey
         mov dx,helpmes3
+        mov ah,9
+        int 021
+        popf
+        pushf
+        if z call helpkey
+        mov dx,helpmes4
+        mov ah,9
+        int 021
+        popf
+        if z call helpkey
+        mov dx,helpmes5
         mov ah,9
         int 021
         mov ax,04c00
@@ -487,15 +541,15 @@ helpkey2:
         ret
 PDOUBLE:xor CS:DOUBLE,0FF
         RET
-PNORM:  cmp cs:rommod,2
-        jz pnorm1
-        ja pnorm2
-        xor cs:rommod,1
-        ret
-pnorm1: mov cs:rommod,0
-        ret
-pnorm2: xor cs:rommod,7
-        ret
+PNORM:  cmp cs:rommod,3                 ; 48+DISCiPLE?   ***** HMc *****
+        ja pnorm1                       ; jump if 128  ***** HMc *****
+        mov cs:rommod,0                 ; make 48K only  ***** HMc *****
+        ret                             ; return  ***** HMc *****
+PMGT:
+        mov dx,discerr
+        jmp enderr
+pnorm1: mov cs:rommod,4                 ; make 128K only  ***** HMc *****
+        ret                             ; return  ***** HMc *****
 PSAMR:  cmp cs:rommod,2
         MOV CS:ROMMOD,2
         if z mov cs:rommod,1
@@ -504,13 +558,19 @@ p128:   lodsw
         cmp ax,'82'
         if nz sub si,2
         cmp cs:rommod,2
-        ja p1281
+        je p1280                        ; if 48K+If1+SAMRAM  ***** HMc *****
         jb p1282
-        mov cs:rommod,4
+        cmp cs:rommod,3                 ; if 128K  ***** HMc *****
+        ja p1281                        ; then mode > 48  ***** HMc *****
+        mov cs:rommod,6                 ; 48+DISC > 128+DISC  ***** HMc *****
         ret
-p1281:  sub cs:rommod,3
+p1280:  mov cs:rommod,5                 ; ***** HMc *****
+        ret                             ; ***** HMc *****
+p1281:  sub cs:rommod,4
+        cmp cs:rommod,2                 ; if was 6, 128+DISC  ***** HMc *****
+        if z mov cs:rommod,3            ; then 3, 48+DISC  ***** HMc *****
         ret
-p1282:  add cs:rommod,3
+p1282:  add cs:rommod,4                 ; mode > 128  ***** HMc *****
         ret
 PIF1BSW:xor CS:IF1SW,0FF
         RET
@@ -523,34 +583,56 @@ PLDR:   xor CS:mflag,2
 PISSUE2:xor CS:ISSUE2,0FF
         RET
 PXXX:   CALL GETCHR
-        CMP AL,'H'
-        if Z jmp PXTDHERC
-        CMP AL,'N'
-        if Z jmp PIMMNMI
-        cmp al,'R'
-        if z jmp pnewrom
-        cmp al,'E'
-        if z jmp pexpmem
+        cmp al,'A'
+        if z jmp padlib
+        cmp al,'B'
+        if z jmp pgreyvga
         cmp al,'C'
         if z jmp pcms
         cmp al,'D'
         if z jmp pdebug
-        cmp al,'Z'
-        if z jmp pazerty
-        cmp al,'V'
-        if z jmp p400vga
-        cmp al,'A'
-        if z jmp padlib
+        cmp al,'E'
+        if z jmp pexpmem
         cmp al,'F'
         if z jmp pif1bsw
+        cmp al,'G'
+        if z jmp polall
+#if xherc
+        CMP AL,'H'
+        if Z jmp PXTDHERC
+#endif
         cmp al,'I'
         if z jmp pinternal
-        cmp al,'W'
-        if z jmp pwinkey
+        cmp al,'J'
+        if z jmp pzxprbusy
+        cmp al,'K'
+        if z jmp pm128
+        cmp al,'L'
+        if z jmp pzxprint           ;M,P in xswitch in xtra.c
+        cmp al,'N'
+        if z jmp pblasterrate
+        cmp al,'O'
+        if z jmp pblaster
+        cmp al,'Q'
+        if z jmp psetbase
+        cmp al,'R'
+        if z jmp pnewrom
         cmp al,'S'
         if z jmp pcurs128
-        cmp al,'B'
-        if z jmp pgreyvga
+        cmp al,'T'
+        if z jmp ptiny
+        cmp al,'U'
+        if z jmp psupertiny
+        cmp al,'V'
+        if z jmp p400vga
+        cmp al,'W'
+        if z jmp pwinkey
+        cmp al,'X'
+        if z jmp phicolour
+        cmp al,'Y'
+        if z jmp ptrace
+        cmp al,'Z'
+        if z jmp pazerty
         dec si                  ;point to the option again
         push ds
         push si
@@ -570,9 +652,7 @@ PXXX:   CALL GETCHR
         cmp ax,6
         if z jmp enderr
         ret
-PIMMNMI:
-        xor CS:IMMNMI,0FF
-        RET
+#if xherc
 PXTDHERC:
         xor CS:XTDHERC,0FF
         xor cs:hercflg,0ff
@@ -583,6 +663,10 @@ PHERC:  xor CS:HERCFLG,0FF
         mov cs:xtdherc,0
         mov cs:hercflg,0ff
         RET
+#else
+pherc:  xor cs:hercflg,0ff
+        ret
+#endif
 PCGA:   xor CS:CGA,0FF
         RET
 p400vga:xor cs:trivga,0ff
@@ -590,6 +674,7 @@ PVGA:   xor CS:VGA,0FF
         RET
 PEGA:   xor CS:EGA,0FF
         RET
+#if plant
 PPLANT: cmp cs:atradr,attrp1
         jnz notplant
         cmp cs:plantr,0ff
@@ -607,10 +692,11 @@ PQPLANT:cmp cs:atradr,attrp1g
         mov cs:atradr,attrp1
         mov cs:plantr,0
         RET
+#endif        
 pnewrom:
-        mov dx,offset _tapein   ;dummy
+        mov dx,offset _progpath+1   ;dummy
         call transfer_open_name
-        jc pnr_err
+        if c jmp pnr_err
         mov cs:xrhandle,ax
         ret
 pazerty:
@@ -642,16 +728,54 @@ padlib:
         xor cs:adlib,0ff
         ret
 pwinkey:
-        xor cs:winkey,0ff
+        cmp cs:winkey,0
+        mov cs:winkey,0
+        if z mov cs:winkey,0ff
         ret
 pgreyvga:
         xor cs:greyvga,0ff
+        ret
+pm128:
+        xor cs:_m128_on,0ff
+        ret
+pzxprint:
+        call getn
+        mov cs:zxprint,ax
         ret
 pnr_err:
         mov dx,romfile_nf
         jmp enderr
 pcms:
         xor cs:cmschips,0ff
+        ret
+polall:
+        xor cs:outlogall,0ff
+        ret
+pblaster:
+        mov dx,regerr
+        jmp enderr
+pblasterrate:
+        mov dx,regerr
+        jmp enderr
+psetbase:
+        lodsb
+        cmp al,' '
+        je psetbase
+        cmp al,9
+        je psetbase
+        dec si
+        xor bx,bx
+pcms_2: call pdebug_chr
+        jnc pcms_2
+        dec si
+        mov dx,baseerr
+        cmp bx,0200
+        if c jmp enderr
+        cmp bx,0300
+        if ae jmp enderr
+        test bl,0f
+        if ne jmp enderr
+        mov cs:baseadr,bx
         ret
 pinternal:
         xor cs:intsnd,0ff
@@ -662,44 +786,117 @@ pcurs128:
 PSILENCE:
         xor CS:SILENCE,0FF
         RET
+phicolour:
+        xor cs:_usercoloremu,0ff
+        ret
+pzxprbusy:
+        xor cs:zxprbusy,0ff
+        ret
+psupertiny:
+        xor cs:_nohcrmem,-1
+ptiny:
+        mov cs:vocbuflen,8192
+        mov cs:outlogbuflen,960         ;divisible by 80
+        ret
+ptrace:
+        xor cs:tracing,0ff
+        ret
 PJOYSTICK:
         CALL GETCHR
-        CMP AL,'1'
-        JE PJOY_SINCLAIR
         CMP AL,'2'
         JE PJOY_SINCLAIR
+        cmp al,'U'
+        je pjoy_userdef
+        cmp al,'C'
+        je pjoy_cursor
         CMP AL,'K'
         IF NE JMP ERR
-        mov al,1
-pjoyput:cmp cs:joymode,al
-        MOV CS:JOYMODE,al
-        jnz ret
-        mov cs:joymode,0
+        MOV CS:JOYMODE,1
         RET
 PJOY_SINCLAIR:
-        ADD AL,2-'1'
-        jmp pjoyput
+        mov cs:joymode,3
+        ret
+pjoy_cursor:
+        mov cs:joymode,0
+        ret
+pjoy_userdef:
+        mov cs:joymode,2
+        mov bx,offset _udef_joy         ;left
+        call getudefjoykey
+        mov bx,offset _udef_joy+2       ;right
+        call getudefjoykey
+        mov bx,offset _udef_joy+6       ;up
+        call getudefjoykey
+        mov bx,offset _udef_joy+4       ;down
+        call getudefjoykey
+        mov bx,offset _udef_joy+8       ;fire
+getudefjoykey:
+        lodsb
+        cmp al,' '
+        je getudefjoykey
+        cmp al,9
+        je getudefjoykey
+        cmp al,'A'
+        jb guj_1
+        cmp al,'Z'
+        ja guj_1
+        or al,32                        ;make lowercase if necessary
+guj_1:  push bx
+        mov bx,offset _udef_joy_table
+        mov cx,40
+guj_2:  cmp al,cs:[bx+2]
+        je guj_3
+        add bx,4
+        loop guj_2
+        mov dx,joyerr
+        jmp enderr
+guj_3:  mov cx,cs:[bx]
+        pop bx
+        mov cs:[bx],cx
+        mov cs:[bx+20],al
+        ret
+
+pkeybscan:
+        call gethexword
+        mov dx,pkbscanerr
+        cmp bh,058
+        if a jmp enderr
+        cmp bl,0c0+29
+        if a jmp enderr
+        mov al,bl
+        mov bl,bh
+        xor bh,bh
+        mov cs:[bx+keybtab1],al
+        ret
 pdebug:
-        xor bx,bx
-        call pdebug_chr
-        call pdebug_chr
-        call pdebug_chr
-        call pdebug_chr
+        call gethexword
         mov cs:debugadr,bx
         mov cs:debugflg,0ff
+        ret
+gethexword:
+        xor bx,bx
+        call pdebug_chr
+        jb pdbg_err
+        call pdebug_chr
+        jb pdbg_err
+        call pdebug_chr
+        jb pdbg_err
+        call pdebug_chr
+        jb pdbg_err
         ret
 pdebug_chr:
         lodsb
         cmp al,'a'
         if ae and al,0df
         cmp al,'0'
-        jb pdbg_err
-        cmp al,'F'
-        ja pdbg_err
+        jb ret
+        cmp al,'F'+1
+        cmc
+        jb ret
         cmp al,'9'
         jbe pdbg_ok
         cmp al,'A'
-        jb pdbg_err
+        jb ret
         add al,'0'-'A'+10
 pdbg_ok:
         sub al,'0'
@@ -731,14 +928,30 @@ pttape:
         mov dx,terr3
         cmp ax,3
         if z jmp enderr
+        mov dx,terr4
+        cmp ax,4
+        if z jmp enderr
+        mov dx,terr5
+        cmp ax,5
+        if z jmp enderr
         mov dx,terr6
         cmp ax,6
         if z jmp enderr
         ret
 PJINPUT:
         CALL GETCHR
+        cmp al,'A'
+        jz pamsmouse
+        cmp al,'M'
+        jz pjmouse
         CMP AL,'K'
         JE PJKEYBOARD
+        cmp al,'1'
+        je pj1joystick
+        cmp al,'2'
+        je pj2joysticks
+        cmp al,'X'
+        if e jmp pkeybscan
         CMP AL,'Z'
         IF NE JMP ERR
         mov al,1
@@ -751,6 +964,43 @@ pjinputput:
         jnz ret
         mov cs:zandjoy,0ff
         RET
+pj1joystick:
+        mov cs:secondjoy,0
+        ret
+pj2joysticks:
+        mov cs:secondjoy,0ff
+        ret
+pjmouse:
+        xor cs:msmouse,0ff
+        jmp short pmouse
+pamsmouse:
+        xor cs:amsmouse,0ff
+pmouse: xor ax,ax
+        int 033
+        inc ax
+        jne pnomsmouse
+        mov ax,2                ;hide mouse
+        if e dec ax             ;show mouse
+        int 033
+        mov cx,0
+        mov dx,0200
+        mov ax,7
+        int 033                 ;set column range
+        mov cx,0
+        mov dx,0200
+        mov ax,8
+        int 033                 ;row range
+        mov cx,0100
+        mov dx,0100
+        mov ax,4                ;set pos
+        int 033
+        ret
+pnomsmouse:
+        mov cs:msmouse,0
+        mov cs:amsmouse,0
+        mov dx,mouseerr
+        call print
+        ret
 pmdrv:  lodsb
         cmp al,' '
         jz pmdrv
@@ -883,7 +1133,7 @@ PPARN:  CALL CHK_DUPOUT
         MOV BX,AX
         CMP ES:W[BX+0408],0
         POP ES
-        JZ NOLPTPORT
+        if Z jmp NOLPTPORT
         RET
 PISERN: CALL GETN
         CMP AL,4
@@ -892,6 +1142,10 @@ PISERN: CALL GETN
         MOV CS:INNUM,AX
         JMP SHORT CHECKCOM
 GETN:   LODSB
+        cmp al,020
+        je getn
+        cmp al,9
+        je getn
         CMP AL,'1'
         JB GETNERROR
         CMP AL,'4'
@@ -899,6 +1153,26 @@ GETN:   LODSB
         SUB AL,'1'
         XOR AH,AH
         RET
+getnn:  lodsb
+        cmp al,020
+        je getnn
+        cmp al,9
+        je getnn
+        xor bx,bx
+        dec si
+getnn1: lodsb
+        dec si
+        sub al,'0'
+        jc ret
+        cmp al,9
+        ja ret
+        xor ah,ah
+        xchg ax,bx
+        mov dx,10
+        mul dx
+        add bx,ax
+        inc si
+        jmp getnn1
 GETCHR: LODSB
         CMP AL,'a'
         JB GTCH_NOLOWER
@@ -964,8 +1238,11 @@ TRANSFER_NAME:
 EOFN:   MOV ES:B[BX],0
         DEC SI
         POP DX
+        cmp dx,offset _progpath     ;dummy output filename holder
+        je open_create              ;(I know, VERY bad programming)
         CMP DX,OFFSET _outputfile
         JNZ OPEN_F
+open_create:
         MOV AH,03C
         MOV CX,020
         PUSH DS
@@ -984,24 +1261,132 @@ OPENED: POP DS
         MOV AX,0
         RET
 
+;********************* HMc BLOCK ******************************************
+DISCOPTS:
+           CALL GETCHR                  ; get next character
+           and al,0df                   ; make capital
+           cmp al,'E'                   ; EPSON printer?
+           if e jmp DISCEpson                 ; jump if it is
+           cmp al,'H'                   ; HP PCL printer?
+           if e jmp DISCHPPCL                 ; jump if it is
+           cmp al,'F'
+           je discff
+           cmp al,'M'
+           je discmap
+           cmp al,010
+           je discnoierr
+           mov dx,discerr
+           jmp enderr
+
+DISCDisc:
+           mov al,0                     ; DISCiPLE (EPSON)
+           jmp DISCCont1
+
+DISCUni:
+           mov al,9                     ; UNIDOS
+           jmp DISCCont1
+
+DISCPlus:
+           mov al,16                    ; PLUS D (EPSON)
+
+DISCCont1:
+           mov byte ptr cs:[_DISCType],al
+           ret
+
+discinter:
+           mov word cs:disccnt0,-1      ;effectively disable disciple interrupts
+           ret
+
+discff:
+           call haalpromille            ;# lines before FF
+           mov cx,10
+           xor dx,dx
+           div cx                       ;Undo final multiplication in haalprom.
+           mov cx,8
+           mul cx                       ;# graphic lines = 8 times # char lines
+           mov word cs:zxprinterlines,ax
+           mov word cs:zxprinterlinescount,ax
+           ret
+
+discmap:
+        MOV DX,OFFSET _progpath     ;dummy, and signalling 'create'
+        CALL TRANSFER_OPEN_NAME     ;(do NOT take over this style of programming)
+        MOV DX,mapfile_nf
+        IF C JMP ERR2
+        mov cs:mapfilehandle,ax
+        mov cs:mapflg,0ff
+        RET
+
+discnoierr:
+            mov dx,offset regerr
+            jmp enderr
+
+
+DISCEpson:
+           mov al,byte ptr cs:_disctype ; get disc type
+           cmp al,9                     ; UNIDOS?
+           je DISCEpson1                ; jump if it is
+           and al,0fe
+           mov byte ptr cs:_disctype,al
+
+DISCEpson1:
+           mov al,0ff
+           jmp DISCCont2
+
+DISCHPPCL:
+           mov al,byte ptr cs:_disctype ; get disc type
+           cmp al,9                     ; UNIDOS?
+           je DISCHPPCL1                ; jump if it is
+           and al,0fe
+           inc al                       ; change to HP PCL
+           mov byte ptr cs:_disctype,al
+
+DISCHPPCL1:
+           mov al,0
+
+DISCCont2:
+           mov byte ptr cs:[_zxptype],al
+           ret
+
+
+;********************** END OF HMc BLOCK **********************************
 
 
 
 LOAD_ROMS:                              ;...but first do some initialising
         PUSH DS
         PUSH SI
+        mov ah,0de                      ;get/set Novell broadcast mode
+        mov dl,4                        ;get mode in al
+        int 021
+        mov cs:novellbroadcastmode,al
+        mov ah,0de
+        mov dl,1                        ;discard user messages
+        int 021
+        call get_cputype
         call adlib_init
+        call install_blaster            ;Exits emulator when no sb found
         CALL INITJOYSTICK               ;initialiseer joystick uitlezing
         mov dx,cs:tapeio
         push dx
         call far _getissue2default
         pop dx
-        MOV AX,CS:RFA                   ;EERST SNELHEIDINSTELLING AFHANDELEN
-        CALL SPEED_CONVERT
         CMP CS:OUTMODE,0
         IF Z MOV CS:OUTMODE,1           ;DEFAULT LPT1 (OUTNUM=0)
+        mov ax,cs:introscrseg
+        mov ds,ax
+        xor si,si
+        mov di,offset disciplebuffer
+        mov ax,seg disciplebuffer
+        mov es,ax
+        mov cx,01b00
+        cld
+        rep movsb                       ;move intro screen into disciple buffer
+        push ds
+        pop es
+        mov ah,049
+        int 021                         ;free temporary chunk
         call allocate_memory
-
         call init_memory
         call load_romfile
         MOV ax,CS:VIDBUFSEG     ;VIDEO BUFFER SEGMENT ADRES
@@ -1021,6 +1406,8 @@ LOAD_ROMS:                              ;...but first do some initialising
         mov ax,02523
         int 021
         call init_video
+        cmp byte cs:gmod,5      ;vga
+        if ne mov cs:_usercoloremu,0
         call intro
         CALL INIT_EMULATOR      ;Must be before load_z80_file but after
         pop dx                  ; init_video (otherwise get_tt fails)
@@ -1031,97 +1418,65 @@ LOAD_ROMS:                              ;...but first do some initialising
         CALL RESET              ;ZET Z80 PARAMS BIJ RESET
         POP SI
         POP DS
-        push si
-        MOV AH,0
+        mov cs:c_action_code,0f9        ;Load snapshot, startup code
+        mov di,offset _prognaam
+        mov ax,seg _prognaam
+        push es
+        push ax
+        pop es
+        mov cx,129
         cld
-ASCIILOOP:
-        LODSB
-        TEST AL
-        JZ END_ASCII
-        CMP AL,0D
-        JZ END_ASCII
-        cmp al,01a
-        jz end_ascii
-        CMP AL,020
-        JZ END_ASCII
-        CMP AL,9
-        JZ END_ASCII
-        OR AH,080
-        CMP AL,'\'
-        IF Z AND AH,0FE
-        CMP AL,'.'
-        JNZ ASCIILOOP
-        OR AH,1
-        JMP ASCIILOOP
-END_ASCII:
-        TEST AH,080
-        JNZ NAME_FOUND
-        CMP AL,020
-        JZ ASCIILOOP
-        CMP AL,9
-        JZ ASCIILOOP
-        POP DX
-        JMP install_etc
-NAME_FOUND:
-        MOV BP,SI
-        TEST AH,1
-        JNZ DONT_ADD
-        ADD SI,4
-        MOV W[SI-5],'Z' BY '.'
-        MOV W[SI-3],'0' BY '8'
-DONT_ADD:
-        POP DX                  ;DX=BEGIN FILENAME
-        MOV B[SI-1],0
-        MOV AX,03D00
-        INT 021
-        mov bx,0                ;signal: z80 file
-        IF nC JMP loadz80file
-        mov si,bp
-        add si,4
-        mov b[si-4],'S'
-        mov w[si-3],'A' by 'N'
-        mov ax,03d00
-        int 021
-        if c jmp error
-        mov bx,1                ;signal: sna file
-loadz80file:
-        xchg BX,AX
-        call load_z80_file
-        cmp ax,2
-        jz wrong_version
-        test ax,ax
-        jnz err_file
-        mov al,cs:imode
-        mov cs:issue2,0
-        mov cs:double,0
-        mov cs:joymode,0
-        test al,4
-        if nz mov cs:issue2,0ff
-        test al,8
-        if nz mov cs:double,0ff
-        test al,16
-        if nz mov cs:syncmod,1
-        test al,32
-        if nz or cs:syncmod,2
-        cmp cs:syncmod,0
-        if z mov cs:syncmod,2
-        test al,64
-        if nz mov cs:joymode,1
-        test al,128
-        if nz or cs:joymode,2
-        and cs:imode,3
-        jmp short install_etc
+        rep movsb
+        pop es
+install_etc:
+        mov ax,cs:specseg
+        MOV DS,AX
+        CALL SAVE_VECTORS
+        MOV BYTE CS:INTTEL,0
+        CLI
+        cmp byte cs:winkey,0
+        jnz dont_install
+        MOV WORD ES:[32],TIMER
+        MOV ES:[34],CS
+;        MOV WORD ES:[36],KEYBOARD      ;Keyboard does work under win 3.1 (v3.04)
+;        MOV ES:[38],CS
+        mov word es:[76],newint13       ; new int 13 routine  ***** HMc *****
+        mov word es:[78],seg newint13   ; new int 13 routine  ***** HMc *****
+dont_install:
+        MOV WORD ES:[36],KEYBOARD       ;Also under Windows (v3.04)
+        MOV ES:[38],CS
+        MOV WORD ES:[08C],CTRLC         ;IRET
+        MOV ES:[08E],CS
+        MOV WORD ES:[090],CRIT_ERR
+        MOV ES:[092],CS
+        MOV WORD ES:[108],CTRLC         ;IRET
+        MOV ES:[110],CS
+        MOV WORD ES:[52],SEGVIOLATION
+        MOV ES:[54],CS
+        mov word cs:trapadr,offset emulate_0
+        mov word cs:trapseg,seg emulate_0
+        CALL INSTALL_COM
+        STI
+        call adlib_turnon
+        CALL INIT_EMULATOR
+        call install_all
+        cmp byte cs:winkey,0    ;But it should be done when playing VOC files,
+        jne no_tim_inst         ; even though the timer isn't used at all.
+        MOV AX,CS:ADDNUM
+        OUT 040,AL
+        MOV AL,AH
+        OUT 040,AL
+no_tim_inst:
+        PUSH CS
+        POP ES
+        MOV CS:SP2,SP           ;ZET STACK POINTER VOOR TIMER
+        CALL GET_REGS           ;HAAL REGISTERS
+        jmp enter_c             ;Load snapshot if specified, and run emulator
+
+
 
 too_fast:
         mov dx,toofasterr
-        jmp enderr
-wrong_version:
-        call text_mode
-        mov dx,error_wrong_version
-        jmp enderr
-err_file:
-        call text_mode
-        MOV DX,ERROR_IN_FILE
 ENDERR: CALL PRINT
         MOV DX,L0D0A
         CALL PRINT
@@ -1141,587 +1496,6 @@ PRINT_DS:
 NOT_ENOUGH:
         MOV DX,NEM
         JMP ENDERR
-
-
-error:  mov cs:c_active,0ff
-        mov cs:c_action_code,0f9        ;Luie_gebruiker_code
-        mov ds:b[bp-1],0
-        mov si,dx
-        mov di,offset _prognaam
-        mov ax,seg _prognaam
-        push es
-        push ax
-        pop es
-        mov cx,129
-        cld
-        rep movsb
-        pop es
-install_etc:
-        mov ax,cs:specseg
-        MOV DS,AX
-        CALL SAVE_VECTORS
-        MOV BYTE CS:VID_ACT,0           ;MAAK VIDEO INACTIEF
-        MOV BYTE CS:TIMFLAG,0           ;MAAK TIMER INACTIEF
-        MOV BYTE CS:INTTEL,0
-        CLI
-        cmp byte cs:winkey,0
-        jnz dont_install
-        MOV WORD ES:[32],TIMER
-        MOV ES:[34],CS
-        MOV WORD ES:[36],KEYBOARD
-        MOV ES:[38],CS
-dont_install:
-        MOV WORD ES:[08C],CTRLC         ;IRET
-        MOV ES:[08E],CS
-        MOV WORD ES:[090],CRIT_ERR
-        MOV ES:[092],CS
-        MOV WORD ES:[108],CTRLC         ;IRET
-        MOV ES:[110],CS
-        MOV WORD ES:[52],SEGVIOLATION
-        MOV ES:[54],CS
-        CALL INSTALL_COM
-        STI
-        call adlib_turnon
-        CALL INIT_EMULATOR
-        CALL RREG_INST          ;RREG EMULATIE EN VERTRAGING INSTALLEREN
-        CALL LDIR_INST          ;LDIR EMULATIE INSTALLEREN
-        CALL SILENCE_INST       ;STILLE SPECTRUM E.D. INSTALLEREN
-        PUSH CS
-        POP ES
-        MOV CS:SP2,SP           ;ZET STACK POINTER VOOR TIMER
-        CALL GET_REGS           ;HAAL REGISTERS
-        CALL IMMEDIATE_NMI
-        JMP FAR EMULATE         ;en spring naar de emulator.
-
-
-
-
-;OUT_BC:
-SI_NB_NS:
-        SAHF
-        MOV AH,BH
-        MOV BX,CX
-;OUT_CONTINUE:
-        PUSHF
-        TEST BL,1
-        IF NZ JMP SI_NB_NS+0100         ;NO_SPEAKER
-        call (68-16)*256+si_nb_ns       ;overscan0
-        MOV BX,AX
-        IN AL,061
-        XCHG AL,AH
-        MOV ES:BYTE NEWBOR,AL
-        AND AX,0FD10
-        ADD AL,-16
-        SBB AL,AL
-        AND AL,2
-        OR AL,AH
-        OUT 061,AL
-        MOV AX,BX
-        POPF
-        LAHF
-        RET
-
-;OUT_BC:
-SI_NB_S:
-        SAHF
-        MOV AH,BH
-        MOV BX,CX
-;OUT_CONTINUE:
-        PUSHF
-        TEST BL,1
-        IF NZ JMP SI_NB_S+0100          ;NO SPEAKER
-        MOV ES:BYTE NEWBOR,AH
-        call (68-16)*256+si_nb_s        ;overscan
-        POPF
-        LAHF
-        RET
-
-
-
-
-in_fast_1:
-        INC DI
-        cmp b[di],0fe
-        jne >l1
-        inc di
-        mov bx,dx
-        MOV DX,0
-tapeioadr       equ $-2
-        mov al,191
-        mov dx,bx
-        XOR BL,BL
-        MOV BH,[DI]
-        JMP BX
-        NOP                     ;RUIMTE VOOR:
-        NOP                     ; INC ES:B[RR]
-        NOP
-        NOP
-        NOP
-l1:     jmp 67*256+183+37*256+in_fast_1        ;in_slow (183=0b7, 37=-219)
-len1    equ $-in_fast_1
-
-in_fast_2:
-        INC DI
-        cmp b[di],0fe
-        jne >l1
-        inc di
-        mov bh,al
-        mov bl,0fe
-        call in_fast_2+21*256+2+183+37*256    ;in_continue
-        mov al,bh
-        XOR BL,BL
-        MOV BH,[DI]
-        JMP BX
-        NOP                     ;RUIMTE VOOR:
-        NOP                     ; INC ES:B[RR]
-        NOP
-        NOP
-        NOP
-l1:     jmp 67*256+183+37*256+in_fast_2        ;in_slow (183=0b7, 37=-219)
-len2    equ $-in_fast_2
-
-djnznormal:
-        INC DI
-        DEC CH                  ;DJNZ E
-        JZ >L1
-        XCHG AX,BX
-        MOV AL,[DI]
-        CBW
-        ADD DI,AX
-        XCHG AX,BX
-        XOR BL,BL
-L1:     INC DI
-        MOV BH,[DI]
-        JMP BX
-        NOP                     ;RUIMTE VOOR:
-        NOP                     ; INC ES:B[RR]
-        NOP
-        NOP
-        NOP
-djnzlen1        equ $-djnznormal
-
-djnzslow:
-        INC DI
-        DEC CH                  ;DJNZ E
-        JZ >L1
-        mov bx,ax
-        MOV AL,[DI]
-        CBW
-        ADD DI,AX
-        mov ax,2
-l0:     dec ax
-        jne l0
-        mov ax,bx
-L1:     INC DI
-        XOR BL,BL
-        MOV BH,[DI]
-        JMP BX
-        NOP                     ;RUIMTE VOOR:
-        NOP                     ; INC ES:B[RR]
-        NOP
-        NOP
-        NOP
-djnzlen2        equ $-djnzslow
-
-
-SILENCE_INST:                           ;OOK INSTALLATIE ISSUE-2
-        PUSH AX                         ;en installeert snelle IN A,(FE)
-        PUSH SI                         ;en installeert trage DJNZ
-        PUSH DI
-        PUSH ES
-        PUSH DS
-        MOV AX,SEG EMULATE
-        MOV DS,AX
-        mov ax,cs:tapeio
-        mov cs:w[offset tapeioadr],ax
-        call install_fastin
-        MOV AL,3
-        MOV SI,OFFSET SI_NB_NS
-        CMP CS:SILENCE,0
-        JZ INSTALL_SIL
-        MOV SI,OFFSET SI_NB_S
-        MOV AL,0
-INSTALL_SIL:
-        MOV cs:B[SILENT2],AL            ;in mdrv.8
-        PUSH DS
-        POP ES
-        PUSH CS
-        POP DS
-        MOV DI,OFFSET OUT_BC
-        MOV CX,73
-        CLD
-        REP MOVSB
-        MOV SI,DJNZNORMAL
-        MOV CX,DJNZLEN1
-        CMP byte CS:MODFLG,0
-        JZ INSTALL_NORMALMODE
-        MOV SI,DJNZSLOW
-        MOV CX,DJNZLEN2
-INSTALL_NORMALMODE:
-        MOV DI,16*256
-        mov ax,13                       ;13 T states, no nops offset
-        call movecommand
-        MOV AL,191
-        TEST BYTE CS:ISSUE2
-        IF NZ MOV AL,0FF
-        xor al,cs:byte issue2default
-        MOV ES:BYTE VERSIE_ADRES,AL
-        mov es:byte versie_adres2,al
-        POP DS
-        POP ES
-        POP DI
-        POP SI
-        POP AX
-        RET
-
-
-
-install_fastin:
-        push es
-        push ds
-        push di
-        push si
-        push cx
-        push ax
-        mov ax,seg emulate
-        mov es,ax
-        push cs
-        pop ds
-        mov di,219*256                  ;IN A,(n)
-        mov ax,0200c            ;32 nops offset, 12 T states (NOT 11!)
-        mov si,offset in_fast_1
-        mov cx,len1
-        cmp byte cs:modflg,0
-        jne i_fi_realmod
-        mov ax,0800c            ;64 nops offset, 12 T states (NOT 11!)
-        mov si,offset in_fast_2
-        mov cx,len2
-i_fi_realmod:
-        call movecommand
-        pop ax
-        pop cx
-        pop si
-        pop di
-        pop ds
-        pop es
-        ret
-
-
-
-
-;
-;The slowdowncode is put at 0B7 + 204..223
-;       mov bh,[di]     8a 3d
-;       jmp bx          ff e3
-;       jmp nn          e9 displacement (rel. to PC just after the jmp)
-;       es:             26
-;       inc b[]         fe 06 address
-;       cmp di,[]       3b 3e address
-;       jne n           75 displacement
-;       nop             90
-;       mov bx,nn       bb number
-;       dec bx          4b
-;
-RREG_INST:
-        push ds
-        mov bx,offset slowmod
-        mov di,(104 shl 8)+0b7
-        cld
-        mov es,seg emulate
-rreg_1loop:
-        push bx
-        push di
-        mov ax,cs:[bx]
-        test ax
-        if nz call rreg_makeblock
-        pop di
-        pop bx
-        inc bx
-        inc bx
-        add di,256
-        cmp di,124*256
-        jb rreg_1loop
-        mov ds,seg jx_table
-        mov si,offset jx_table
-rreg_2loop:
-        lodsw
-        test ax
-        jz jxtable_done
-        mov di,ax
-        lodsb
-        call slowdown_opcode
-        jmp rreg_2loop
-jxtable_done:
-        pop ds
-        ret
-
-slowdown_opcode:                ;di->jxf; al=# T states
-        mov bx,offset slowmod-8
-        xor ah,ah
-        add bx,ax
-        add bx,ax
-        mov bx,cs:[bx]
-        test bx
-        jz rreg_snel
-        mov ah,al
-        mov al,0e9
-        stosb
-        add ah,100
-        mov al,0b5
-        sub ax,di
-        stosw
-        ret
-rreg_snel:
-        test cs:mflag,1
-        jz rreg_echtsnel
-        mov al,026
-        stosb
-        mov ax,06fe
-        stosw
-        mov ax,offset rr
-        stosw
-rreg_echtsnel:
-        mov ax,03d8a
-        stosw
-        mov ax,0e3ff
-        stosw
-        ret
-
-rreg_makeblock:
-        test cs:debugflg,0ff
-        jz no_debugging
-        push ax
-        mov al,026
-        stosb
-        mov al,03b
-        stosb
-        mov al,03e
-        stosb
-        mov ax,offset debugadr  ;cmp di,es:[debugadr]
-        stosw
-        mov ax,0375             ;jne >
-        stosw
-        mov al,0e9
-        stosb
-        mov ax,offset trapper
-        sub ax,di
-        sub ax,2
-        stosw                   ;jmp trapper
-        pop ax
-no_debugging:
-        test cs:winkey,0ff
-        jz no_winkey
-        push ax
-        mov al,026
-        stosb                   ;es:
-        mov ax,00683
-        stosw                   ;inc w[],n
-        mov ax,offset tstates
-        stosw
-        mov ax,di               ;high byte: 100+ # T states
-        sub ah,100
-        mov al,ah
-        stosb
-        mov ax,0573             ;jnc 5 bytes ahead
-        stosw
-        mov al,0ea              ;jmp far
-        stosb
-        mov ax,offset inter_handler
-        stosw
-        push cs
-        pop ax
-        stosw
-        pop ax
-no_winkey:
-        test cs:mflag,1
-        jz no_rregemul
-        push ax
-        mov al,026              ;es:
-        stosb
-        mov ax,06fe             ;inc b[]
-        stosw
-        mov ax,offset rr
-        stosw
-        pop ax
-no_rregemul:
-        test ax
-        if nz dec ax
-        mov cx,ax
-        cmp ax,45
-        jb norepblock
-        sub ax,3                ;substract time for MOV BX,nn
-        mov bx,ax
-        mov al,0bb              ;mov bx,nn
-        stosb
-        mov ax,bx
-        shr bx,1
-        shr bx,1
-        shr bx,1
-        shr bx,1
-        xor dx,dx
-        div bx                  ;ax=# nops in block, bx=# blocks, dx=rest
-        xchg ax,bx
-        stosw
-        sub bx,4
-        mov al,090
-        mov cx,bx
-putnops:
-        stosb
-        loop putnops
-        mov al,04b
-        stosb
-        mov al,075
-        stosb
-        mov ax,bx
-        neg ax
-        sub ax,3
-        stosb
-        mov cx,dx
-norepblock:
-        mov al,090
-        jcxz >l1
-        mov bx,di
-        mov bl,0fa
-putnops2:
-        stosb
-        cmp di,bx
-        je >l1
-        loop putnops2
-l1:     mov ax,03d8a
-        stosw
-        mov ax,0e3ff
-        stosw
-        ret
-
-
-movecommand:                    ;ds:si->opcode routine, es:di->destination,
-        push di                 ; cx=length in bytes, al=T states, ah=time offset
-        push cx
-        rep movsb
-        pop cx
-        pop di
-        push cx
-        push di
-mc_findjx:
-        cmp es:w[di],03d8a
-        jne mc_next
-        cmp es:w[di+2],0e3ff
-        jne mc_next
-        push ax
-        push cx
-        push di
-        push ax
-        mov bx,offset slowmod-8
-        xor ah,ah
-        add ax,ax
-        add bx,ax
-        mov ax,cs:[bx]
-        pop bx
-        mov bl,bh
-        xor bh,bh
-        test byte cs:winkey,0ff
-        if e sub ax,bx          ;Number of nops to wait. Now find an appropriate
-        if b xor ax,ax          ; slowdown routine
-        mov cx,20
-        mov bx,offset slowmod
-        mov dx,0ffff            ;best hit difference
-        xor di,di               ;best hit
-mc_findslowdown:
-        push ax
-        sub ax,cs:[bx]
-        if s neg ax
-        cmp dx,ax
-        jb mc_badhit
-        mov dx,ax
-        mov di,bx
-mc_badhit:
-        pop ax
-        inc bx
-        inc bx
-        loop mc_findslowdown
-        cmp ax,dx                       ;if ax<dx, no wait
-        if be mov di,offset slowmod-2   ;guaranteed to be 0
-        test byte cs:debugflg,0ff
-        jz mc_nodebug
-        cmp di,offset slowmod-2
-        if e mov di,offset slowmod
-mc_nodebug:
-        sub di,offset slowmod-8
-        shr di,1
-        mov ax,di
-        pop di
-        push di
-        call slowdown_opcode
-        pop di
-        pop cx
-        pop ax
-        add di,7
-        sub cx,7
-mc_next:
-        inc di
-        dec cx
-        if ne jmp mc_findjx
-        pop di
-        pop cx
-        ret
-
-
-get_cbaddrs:
-        push ds
-        mov ds,seg jx_table
-        mov si,offset jx_table
-        cld
-get_cb_end:
-        lodsw
-        test ax
-        jz got_cb_end
-        inc si
-        jmp get_cb_end
-got_cb_end:
-        dec si
-        dec si
-        push ds
-        pop es
-        mov di,si
-        mov ds,seg emulate
-        mov bx,02c
-rreg_cb:
-        cmp bh,64
-        ja rreg_findjxf
-        mov al,bh
-        and al,7
-        cmp al,6
-        jz rregcb_next
-rreg_findjxf:
-        inc bx
-        cmp w[bx],03d8a
-        jne rreg_findjxf
-        cmp w[bx+2],0e3ff
-        jne rreg_findjxf
-        mov ax,bx
-        stosw
-        mov al,bh
-        and al,7
-        cmp al,6                ;(hl)
-        mov al,8
-        jnz rreg_putt
-        mov al,15
-        cmp bh,64
-        jb rreg_putt
-        cmp bh,128
-        jae rreg_putt
-        mov al,12               ;bit n,(hl)
-rreg_putt:
-        stosb
-rregcb_next:
-        mov bl,02c
-        inc bh
-        jne rreg_cb
-        xor ax,ax
-        stosw
-        stosb
-        pop ds
-        ret
 
 
 breakhandler:
@@ -1745,14 +1519,45 @@ breakhandler:
 ;The following routine loads in the necessary roms from ROMS.BIN according
 ;to the mode setting ('128 or sam). The if1 rom is always loaded, whether or
 ;not it is used. Also, there is always enough memory available for the largest
-;mode (128 mode).
+;mode (128 mode+multiface 128).
+;If reset_romarea != 0, the Multiface 128 ram is wiped clean
 ;
 load_romfile:
-        PUSH CS
-        POP DS
+        cmp rommod,3
+        if z mov rommod,1       ;48k+mgt -> 48k+if1
+        cmp rommod,6
+        if z mov rommod,5       ;128k+mgt -> 128k+if1
         mov ax,cs:romhandle
         test ax,ax
         jnz roms_found
+        push cs                 ;First look for file 'plusdrom.bin'
+        pop ds
+        mov dx,pd_filename
+        mov ax,03d00
+        int 021
+        jnc pd_found
+        call get_progpath
+        push cs
+        pop ds
+        mov si,pd_filename
+        mov cx,15               ;enough
+        cld
+        rep movsb
+        push es
+        pop ds
+        mov dx,offset specchars
+        mov ax,03d00
+        int 021
+        jnc pd_found
+        xor ax,ax               ;signal 'file not found'
+        cmp cs:_disctype,16
+        if e mov cs:_disctype,0
+        cmp cs:_disctype,17
+        if e mov cs:_disctype,1 ;if plus d selected in switches, reset to disciple
+pd_found:
+        mov cs:_pdhandle,ax
+        push cs
+        pop ds
         MOV DX,ROMS_FILENAME
         MOV AX,03D00
         INT 021
@@ -1761,11 +1566,15 @@ load_romfile:
         push cs
         pop ds
         mov si,roms_filename
-        mov cx,9
+        mov cx,15
         rep movsb
+        push es
+        pop ds
         mov dx,offset specchars
         mov ax,03d00
         int 021
+        push cs
+        pop ds
         if c jmp roms_not_found
 roms_found:
         mov cs:romhandle,ax
@@ -1818,8 +1627,40 @@ lr_noems:
         xor cx,cx
         xor dx,dx
         int 021                 ;Move to start of file again.
-no_ext_rom:
+no_ext_rom:                     ; checks for M.G.T.  ***** HMc *****
         pop bx
+        cmp cs:rommod,3         ; 48K + M.G.T.?  ***** HMc *****
+        je load_discip          ; jump if it is  ***** HMc *****
+        cmp cs:rommod,6         ; 128K + M.G.T.?  ***** HMc *****
+        if ne jmp check4if1     ; jump if it is not
+
+load_discip:                    ; ***** HMc *****
+
+pdfileerror:
+        call text_mode
+        mov dx,pdmsg
+        jmp enderr
+
+
+load_discipcont:                ; move to it and load it ***** HMc *****
+        cmp cs:curifrom,ax      ;Is this interface's rom already in place?
+        mov cs:curifrom,ax      ;Signal: this interface's rom loaded (GL, v3.04)
+        je reset_filepos        ;If so, don't reload so as not to disturb
+                                ; disk image in 'rom' area (GL v3.04)
+        mov ax,04200            ; move file point. from start ***** HMc *****
+        int 021                 ; DOS CALL  ***** HMc *****
+        mov dx,04000            ; IF1 ROM area  ***** HMc *****
+        mov cx,04000            ; 16K of ROM to load  ***** HMc *****
+        call load_romblock      ; load ROM  ***** HMc *****
+reset_filepos:
+        mov ax,04200            ; move file point. from start ***** HMc *****
+        mov cx,0                ; of file to postion  ***** HMc *****
+        mov dx,06000            ; 06000H (first SAMRAM ROM) ***** HMc *****
+        int 021                 ; DOS CALL  ***** HMc *****
+        jmp skippedif1          ; jump to check for SAMRAM  ***** HMc *****
+
+check4if1:                      ; check for IF1  ***** HMc *****
+        mov cs:curifrom,5       ;Code for: IF1 rom loaded (always reload; no probs)
         mov dx,04000            ;Space for if1 rom (2 x same 8K)
         mov cx,02000
         call load_romblock
@@ -1830,6 +1671,8 @@ no_ext_rom:
         mov dx,06000
         mov cx,02000
         call load_romblock
+
+skippedif1:                     ; ***** HMc *****
         cmp cs:rommod,2
         jnz roms_nosam
         mov dx,08000            ;First and second samram rom
@@ -1837,8 +1680,8 @@ no_ext_rom:
         call load_romblock
         jmp short roms_init
 roms_nosam:
-        cmp cs:rommod,2
-        jb roms_init
+        cmp cs:rommod,4         ; is it just a 48K?  ***** HMc MOD*****
+        jb roms_init            ; jump if it is  ***** HMc ADDED NOTE*****
         mov ax,04201
         xor cx,cx
         mov dx,08000
@@ -1863,29 +1706,86 @@ roms_init:                      ;romfile handle is not closed.
         mov ax,04403
         mov bl,cs:b[offset ramstate+3]
         int 067
+        mov ax,04400            ;bank 0
+        mov bl,0b               ;page 11 (multiface)
+        int 067
+        jmp short lr_loadmultiface
 lr_noems2:
+        mov ax,cs:romseg
+        add ax,11*0400
+        mov ds,ax               ;ds:0 points to multiface rom
+lr_loadmultiface:
+        mov ax,04200
+        mov cx,1
+        mov dx,0e000            ;Multiface ROM at 01e000 (version 3.00 roms.bin)
+        mov bx,cs:romhandle
+        int 021                 ;Move
+        mov dx,0
+        mov cx,02000
+        call load_romblock      ;load 8k multiface rom
+        cmp byte cs:reset_romarea,0
+        je lr_mf_noreset
+        mov bx,8192
+lr_mf_reset:
+        mov w[bx],0
+        add bx,2
+        cmp bx,16384
+        jb lr_mf_reset
+lr_mf_noreset:
+        mov byte cs:reset_romarea,0
+        mov cs:word rompage1,-1 ;default state (all rom)
         mov cs:b[offset ramstate],0ff
         mov byte cs:actrom2,0ff
         mov ax,0                ;Normal rom at 0-3fff
         cmp byte cs:rommod,2
-        if ae mov al,2          ;e: Samram rom 1; a: '128 rom 2
+        jc ld_noems2c           ; ***** HMc *****
+        cmp byte cs:rommod,3
+        je ld_noems2c           ; ***** HMc *****
+;        if ae mov al,2          ;e: Samram rom 1; a: '128 rom 2  ***** HMc REM *****
+        mov al,2
+
+ld_noems2c:
         call swap_mem
+        cmp byte cs:m128flg,0ff
+        if e call switchon_m128
         mov al,0ff              ;see also: load_z80_file
+        mov ah,0ff              ; disciple on flag  ***** HMc *****
         cmp byte cs:rommod,0    ;mode: norm (no if1)
-        if z xor al,al
-        cmp byte cs:rommod,3    ;mode: 128 (no if1)
-        if z xor al,al
+        if z xor ax,ax          ; no interfaces  ***** HMc MOD *****
+        cmp byte cs:rommod,4    ;mode: 128 (no if1)  ***** HMc MOD *****
+        if z xor ax,ax          ; no interfaces  ***** HMc MOD *****
+        cmp byte cs:rommod,3    ; DISCiPLE?  ***** HMc *****
+        if z xor al,al          ; no if1 + DISCiPLE  ***** HMc *****
+        cmp byte cs:rommod,6    ; DISCiPLE?  ***** HMc *****
+        if z xor al,al          ; no if1 + DISCiPLE  ***** HMc *****
+        cmp byte cs:rommod,1    ; IF1?  ***** HMc *****
+        if z xor ah,ah          ; no if1 + DISCiPLE  ***** HMc *****
+        cmp byte cs:rommod,2    ; IF1?  ***** HMc *****
+        if z xor ah,ah          ; no if1 + DISCiPLE  ***** HMc *****
+        cmp byte cs:rommod,5    ; IF1?  ***** HMc *****
+        if z xor ah,ah          ; no if1 + DISCiPLE  ***** HMc *****
         mov byte cs:if1_on,al
+        mov byte cs:disc_on,ah  ; DISCiPLE connected  ***** HMc *****
+        or al,ah                ; interfaces connected?  ***** HMc *****
         test al,al
-        jz ret
+        if z ret                ; return if not  ***** HMc *****
         cmp byte cs:if1flg,0
-        jz ret
+        jz Chkdiscac            ; check active DISCiPLE  ***** HMc MOD *****
+
+Chkpageif1d:
         mov ax,1                ;Page if1 rom
         call swap_mem
         xor ax,ax
         ret
 
-
+Chkdiscac:
+        cmp byte cs:discflg,0ff ; disciple active?  ***** HMc *****
+        if nz ret               ; return if not  ***** HMc *****
+        mov ax,0ff00                    ;Low 8k=ram (0), Hi 8k=rom (0ff)
+        cmp byte cs:_disctype,8         ;0=disc,8=unidos,16=plus d
+        if nc xchg al,ah                ;Not so with unidos (?) or plus d
+        mov es:rompage1,ax
+        jmp chkpageif1d         ; page DISCiPLE  ***** HMc *****
 
 load_romblock:
         mov ah,03f
@@ -1943,3 +1843,4 @@ no_backslash:
 
 
 startup ends
+

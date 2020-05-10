@@ -1,39 +1,48 @@
 ;
-;   This file is part of the registered Spectrum emulator package 'Z80'
-;   version 2.01, and may not be distributed.  You may use this source for
-;   other PC based Spectrum or Z80 emulators only after permission.  It is
-;   however permitted to use this source file or parts thereof for Spectrum
-;   or Z80 emulators on non-PC based machines, provided that the source is
-;   acknowledged.
+;    This file is part of the registered Spectrum emulator package 'Z80'
+;    version 3.04, and may not be distributed.  You may use this source for
+;    other PC based Spectrum or Z80 emulators only after permission.  It is
+;    however permitted to use this source file or parts thereof for Spectrum
+;    or Z80 emulators on non-PC based machines, provided that the source is
+;    acknowledged.
 ;
-;                                                       Gerton Lunter, 3/5/93
+;                                                     Gerton Lunter, 10/8/96
+;
 
         jmp start
 
 switch  db 0
+ignswit db 0
 block   dw 0
 tapheader:      db 19,0,0
 
 foundswitch:
+        mov dx,switch_err
         lodsb
         and al,0df
+        cmp al,'I'
+        jz ignswitch
         cmp al,'O'
-        mov dx,switch_err
         if nz jmp error
+cont_switch:
         lodsb
         cmp al,020
         if nz jmp error
         mov switch,1
         jmp terug
 
+ignswitch:
+        mov ignswit,0ff
+        jmp cont_switch
+
 start:  mov dx,mesg
         mov ah,9
         int 021
         mov dx,mem_err
-        cmp sp,buffer+50000+1000
+        cmp sp,offset buffer+50000+1000
         if b jmp error
-        mov sp,buffer+50000+1000
-        mov bx,para_needed      ;buffer+50000+1024
+        mov sp,offset buffer+50000+1000
+        mov bx,para_needed      ;offset buffer+50000+1024
         mov ah,04a
         int 021
         if b jmp error
@@ -106,28 +115,29 @@ noerr:
         std
         rep movsb
         cld
-        mov al,b[buffer+19]     ;IFF2
+        mov al,b[offset buffer+19]     ;IFF2
         and al,4
         if nz mov al,0ff
-        mov b[buffer+19],al
-        mov b[buffer+27],al     ;IFF1
-        mov ah,b[buffer+26]     ;border
+        mov b[offset buffer+19],al
+        mov b[offset buffer+27],al     ;IFF1
+        mov ah,b[offset buffer+26]     ;border
         cmp ah,7
         if a mov ah,0
-        mov al,b[buffer+20]     ;R
+        mov al,b[offset buffer+20]     ;R
         shl ax,1
-        mov b[buffer+26],ah
-        mov bx,w[buffer+23]     ;SP
+        mov b[offset buffer+26],ah
+        mov bx,w[offset buffer+23]     ;SP
         cmp bx,16384
         ja sna_normal
-        mov w[buffer+28],072    ;PC -> RETN
+        mov w[offset buffer+28],072    ;PC -> RETN
         jmp sna_continue
 sna_normal:
-        mov ax,w[49152+30+buffer+bx]
-        mov w[buffer+28],ax     ;PC
+        mov ax,w[49152+30+offset buffer+bx]
+        mov w[49152+30+offset buffer+bx],0  ;v3.04
+        mov w[offset buffer+28],ax     ;PC
         inc bx
         inc bx
-        mov w[buffer+23],bx
+        mov w[offset buffer+23],bx     ;SP
 sna_continue:
         mov si,xtabsna
         call xlate
@@ -255,9 +265,9 @@ loop_zxtaps:
         mov ah,03e
         int 021
         pop bx
-        cmp b[buffer],0ff
+        cmp b[offset buffer],0ff
         jz zx_headless
-        cmp b[buffer],0
+        cmp b[offset buffer],0
         mov dx,zxform_msg
         if nz jmp error
         mov dx,tapheader
@@ -268,7 +278,7 @@ loop_zxtaps:
         mov cx,19
         call writeblock
         pop cx
-        mov ax,w[buffer+0d]
+        mov ax,w[offset buffer+0d]
         sub cx,22
         cmp ax,cx
         mov dx,zxform_msg
@@ -339,32 +349,32 @@ fromprg:
         mov di,offset buffer+30
         mov cx,49152
         rep movsb
-        mov si,w[buffer+20]             ;sp
-        add w[buffer+20],6
+        mov si,w[offset buffer+20]             ;sp
+        add w[offset buffer+20],6
         add si,offset buffer+30-04000
         lodsb
         and ax,4
         if nz mov ax,0ffff
-        mov [buffer+27],ax              ;iff1 & 2
+        mov [offset buffer+27],ax              ;iff1 & 2
         lodsb
-        mov b[buffer+26],al             ;r
+        mov b[offset buffer+26],al             ;r
         rol al,1
         and al,1
-        mov b[buffer+18],al             ;flag
+        mov b[offset buffer+18],al             ;flag
         lodsw
         xchg al,ah
-        mov [buffer+24],ax              ;af
+        mov [offset buffer+24],ax              ;af
         lodsw
-        mov [buffer+22],ax              ;pc
-        mov al,[buffer+29]
+        mov [offset buffer+22],ax              ;pc
+        mov al,[offset buffer+29]
         dec al
         cmp al,2
-        jb assume_thisone               ;somewhat mysterious...?
-        mov al,[buffer+19]
+        jb assume_thisone                      ;somewhat mysterious...?
+        mov al,[offset buffer+19]
         cmp al,03f
         mov al,1
         if nz inc al
-        mov [buffer+29],al              ;im
+        mov [offset buffer+29],al              ;im
 assume_thisone:
         mov si,offset xtabprg
         call xlate
@@ -384,7 +394,7 @@ fromz80:
         if c jmp error
         cmp ax,30
         if nz jmp error
-        cmp w[buffer+6],0
+        cmp w[offset buffer+6],0
         if z jmp fromnewz80
         mov dx,offset buffer+30
         mov cx,49190
@@ -403,9 +413,9 @@ fromz80:
         mov dx,convz80_msg
         mov ah,9
         int 021
-        cmp b[buffer+12],0ff
-        if z mov b[buffer+12],1
-        test b[buffer+12],32
+        cmp b[offset buffer+12],0ff
+        if z mov b[offset buffer+12],1
+        test b[offset buffer+12],32
         jnz descrunge
         cmp cx,49182
         mov dx,fil_err
@@ -501,14 +511,22 @@ fromnewz80:
         if c jmp error
         cmp ax,2
         if nz jmp error
-        mov w[buffer+30+23],0
-        mov cx,w[buffer+30]
+        mov w[offset buffer+30+23],0
+        mov cx,w[offset buffer+30]
         cmp cx,23
-        jz accept                       ;normal version 2.00 file
+        jz accept                       ;normal version 2.00/2.01 file
         cmp cx,21
         jz accept                       ;old version 2.00 file
+        cmp cx,54
+        jz accept                       ;normal version 3.00 file
+        cmp ignswit,0ff
+        je accept_warning
         mov dx,ver_err
         jmp error
+accept_warning:
+        mov dx,ign_wrn
+        mov ah,9
+        int 021
 accept:
         mov dx,offset buffer+32
         mov ah,03f
@@ -518,15 +536,25 @@ accept:
         cmp ax,cx
         if nz jmp error
         mov dx,convz80_msg2
+        cmp ax,54
+        if e mov dx,convz80_msg3
         mov ah,9
         int 021
-        mov ax,w[buffer+32]             ;pc
-        mov w[buffer+6],ax
-        cmp b[buffer+34],1
+        mov ax,w[offset buffer+32]             ;pc
+        mov w[offset buffer+6],ax
+        cmp w[offset buffer+30],54             ;version 3?
+        je version3
+        cmp b[offset buffer+34],3              ;128 or 128+if1 in version 2 file?
+        if ae inc b[offset buffer+34]          ;change to version 3 coding
+version3:
         mov dx,mod_err
-        if a jmp error
-        jb no_if1
-        cmp b[buffer+36],0ff            ;if1flg
+        cmp b[offset buffer+34],4              ;128, 128+if1,mgt
+        if ae jmp error
+        cmp b[offset buffer+34],2              ;samram
+        if e jmp error
+        cmp b[offset buffer+34],0
+        je no_if1
+        cmp b[offset buffer+36],0ff            ;if1flg
         mov dx,if1_err
         if z jmp error
 no_if1:
@@ -543,6 +571,8 @@ no_if1:
         cmp ax,3
         if nz jmp error
         mov cx,[0]
+        test cx,cx
+        jz blocks_loaded
         mov ah,03f
         mov dx,3
         int 021
@@ -569,8 +599,8 @@ blocks_loaded:
 fromsp:
         cmp cx,49190
         jnz fromoldsp
-        mov si,buffer+6
-        mov di,buffer
+        mov si,offset buffer+6
+        mov di,offset buffer
         mov cx,49184
         cld
         rep movsb
@@ -583,20 +613,20 @@ fromoldsp:
 fromnewsp:
         mov ah,9
         int 021
-        mov ah,[buffer+28]
+        mov ah,[offset buffer+28]
         and ah,7
-        mov al,[buffer+20]
+        mov al,[offset buffer+20]
         shl ax,1
         or ah,32
-        mov [buffer+28],ah
-        mov al,[buffer+30]
+        mov [offset buffer+28],ah
+        mov al,[offset buffer+30]
         mov ah,al
         and ax,0201
         dec al
         not al
-        mov [buffer+29],ah
+        mov [offset buffer+29],ah
         mov ah,al
-        mov [buffer+30],ax
+        mov [offset buffer+30],ax
         mov si,offset xtabsp
         call xlate
         mov si,offset buffer+32
@@ -632,23 +662,23 @@ phasetwo:
         mov dx,convsna_msg
         mov ah,9
         int 021
-        mov bx,w[buffer+8]      ;SP
+        mov bx,w[offset buffer+8]      ;SP
         dec bx
         dec bx
         cmp bx,16384
         mov dx,sna_err
         if b jmp error
-        mov w[buffer+8],bx
-        mov ax,w[buffer+6]      ;PC
-        mov w[49152+30+buffer+bx],ax
-        mov al,b[buffer+27]     ;IFF1
-        mov b[buffer+28],al     ;IFF2
-        mov ax,w[buffer+11]     ;border + R
+        mov w[offset buffer+8],bx
+        mov ax,w[offset buffer+6]      ;PC
+        mov w[49152+30+offset buffer+bx],ax
+        mov al,b[offset buffer+27]     ;IFF1
+        mov b[offset buffer+28],al     ;IFF2
+        mov ax,w[offset buffer+11]     ;border + R
         shl al,1
         shr ax,1
         and ah,7
-        mov w[buffer+11],ax
-        and b[buffer+29],3      ;IM
+        mov w[offset buffer+11],ax
+        and b[offset buffer+29],3      ;IM
         mov si,xtabsna+27*2-1
         std
         call xlate
@@ -672,17 +702,17 @@ tosp:
         std
         rep movsb
         cld
-        mov ax,[buffer+11]
+        mov ax,[offset buffer+11]
         shl al,1
         shr ax,1
         and ah,7
-        mov [buffer+11],ax
-        mov al,[buffer+29]
-        mov ah,[buffer+27]
+        mov [offset buffer+11],ax
+        mov al,[offset buffer+29]
+        mov ah,[offset buffer+27]
         and ax,0102
         or al,ah
         mov ah,al
-        mov [buffer+27],ax
+        mov [offset buffer+27],ax
         std
         mov si,offset xtabsp+27*2-1
         call xlate
@@ -690,8 +720,8 @@ tosp:
         mov cx,49184
         cld
         if nz jmp saveblock
-        mov si,buffer+49183
-        mov di,buffer+49183+6
+        mov si,offset buffer+49183
+        mov di,offset buffer+49183+6
         std
         rep movsb
         cld
@@ -713,29 +743,29 @@ toprg:  mov dx,convprg_msg
         std
         mov cx,49152
         rep movsb
-        mov di,[buffer+8]               ;sp
-        sub w[buffer+8],6
+        mov di,[offset buffer+8]               ;sp
+        sub w[offset buffer+8],6
         cmp di,16384+6
         mov dx,prg_err
         if b jmp error
         add di,offset buffer-16384+256-2
-        mov ax,[buffer+6]               ;pc
+        mov ax,[offset buffer+6]               ;pc
         stosw
-        mov ax,[buffer]                 ;af reversed
+        mov ax,[offset buffer]                 ;af reversed
         xchg ah,al
         stosw
-        mov ax,[buffer+11]              ;R in AL, bit 7 in AH bit 0
+        mov ax,[offset buffer+11]              ;R in AL, bit 7 in AH bit 0
         shl al,1
         shr ax,1
         mov ah,al
-        mov al,[buffer+27]              ;iff1
+        mov al,[offset buffer+27]              ;iff1
         test al
         if nz mov al,4
         stosw
-        mov al,[buffer+29]
+        mov al,[offset buffer+29]
         and al,3
         if z inc al
-        mov [buffer+29],al              ;No, not at all! (See above)
+        mov [offset buffer+29],al              ;No, not at all! (See above)
         mov si,offset xtabprg+27*2-1
         call xlate
         mov si,offset buffer
@@ -756,7 +786,7 @@ toprg:  mov dx,convprg_msg
 toz80:  mov dx,convz80_145msg
         mov ah,9
         int 021
-        or b[buffer+12],32
+        or b[offset buffer+12],32
         mov di,offset buffer+30
         mov si,di
         mov cx,49152
@@ -1000,11 +1030,11 @@ invxloop:
         mov bl,al
         lodsb
         mov dl,al
-        mov al,[buffer+bx]
+        mov al,[offset buffer+bx]
         xchg bx,dx
-        xchg al,[buffer+bx]
+        xchg al,[offset buffer+bx]
         xchg bx,dx
-        mov [buffer+bx],al
+        mov [offset buffer+bx],al
         loop invxloop
         pop dx
         pop bx
@@ -1025,7 +1055,7 @@ xtabprg:
         db 15,22, 16,23, 17,23, 18,23, 19,20, 20,21, 21,26
         db 22,26, 23,24, 24,25, 25,25, 26,26
 
-mesg:   db "CONVZ80 - Conversion utility - (c) 1993 by G.A. Lunter - version 2.01",0d,0a
+mesg:   db "CONVZ80 - Conversion utility - (c) 1994 by G.A. Lunter - version 3.04",0d,0a
         db "          This program may not be distributed.",0d,0a
         db "          It is part of the registered Spectrum Emulator package."
         db 0d,0a,0d,0a,'$'
@@ -1034,8 +1064,8 @@ mem_err:
 lin_err:
         db "CONVZ80 converts between various Spectrum emulators' snapshot and tape file",0d,0a
         db "formats. The following emulators and file formats are supported:",0d,0a,0d,0a
-        db ".Z80 files (all versions) and .TAP files (version 2.0) of 'Z80'",0d,0a
-        db ".SNA files of Arnt Gulbrandsen's 'JPP'",0d,0a
+        db ".Z80 files (all versions) and .TAP files of 'Z80'",0d,0a
+        db ".SNA files of Arnt Gulbrandsen's 'JPP' and others",0d,0a
         db ".SP files of Pedro Gimeno's 'SPECTRUM' and 'VGASPEC'",0d,0a
         db ".PRG and tape files of Kevin J. Phair's 'SPECEM'",0d,0a
         db "Tape files of L. Rindt and E. Brukner's 'ZX'",0d,0a
@@ -1051,7 +1081,7 @@ lin_err:
         db "  CONVZ80 file1.SP file2.SNA              converts old or new .SP to .SNA",0d,0a
         db "  CONVZ80 test.000 test.001 test.TAP      converts ZX tapefiles to single .TAP$"
 lin_err2:
-        db 0d,0a,"Error in command line: two filenames expected",0d,0a,'$'
+        db 0d,0a,"Error at command line: two files expected",0d,0a,'$'
 fnf_err:
         db "File not found",0d,0a,'$'
 fil_err:
@@ -1069,13 +1099,16 @@ prg_err:
 ext_err:
         db 0d,0a,"Filenames must have extension!",0d,0a,'$'
 ver_err:
-        db 0d,0a,"ConvZ80 only supports .Z80 files up to version 2.0",0d,0a,'$'
+        db 0d,0a,"ConvZ80 only supports .Z80 files up to version 3.0",0d,0a,'$'
+ign_wrn:
+        db 0d,0a,"Warning: unknown header format.  Ignoring extra information.",0d,0a,'$'
 mod_err:
-        db 0d,0a,"File was saved in SamRam or Spectrum 128 mode, and I cannot convert that",0d,0a,'$'
+        db 0d,0a,"File was saved in SamRam or Spectrum 128 mode, and I cannot convert that.",0d,0a
+        db "Use the emulator to change hardware mode.",0d,0a,'$'
 if1_err:
         db 0d,0a,"Interface I is active --- cannot convert this file",0d,0a,'$'
 switch_err:
-        db "Error in switch: I know only of -o",0d,0a,'$'
+        db "Unknown switch: I know only of -o",0d,0a,'$'
 conv1_msg:
         db "Converting from $"
 conv2_msg:
@@ -1088,6 +1121,8 @@ convz80_145msg:
         db ".Z80 (v 1.45)$"
 convz80_msg2:
         db ".Z80 (v 2.0)$"
+convz80_msg3:
+        db ".Z80 (v 3.0)$"
 convsna_msg:
         db ".SNA ('JPP')$"
 convspold_msg:
@@ -1105,7 +1140,7 @@ convspecem:
 convzx:
         db "Converting from ZX's tape file format to .TAP ('Z80') format",0d,0a,'$'
 tapformat_err:
-        db "Inputfile corrupt or not a SpecEm tape file",0d,0a,'$'
+        db "Input file corrupt or not a SpecEm tape file",0d,0a,'$'
 oow_err:
         db "Wrong extension found - you should provide a list of ZX or SpecEm tape files",0d,0a
         db "followed by a .TAP file",0d,0a,'$'
@@ -1119,8 +1154,8 @@ zxform_msg:
         db "Error in file format of ZX tape file",0d,0a,'$'
 
 
-buffer  equ $
+buffer: db ?
+
 
 para_needed     equ ($+50015+1024)/16
 
-

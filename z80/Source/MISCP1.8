@@ -1,941 +1,952 @@
-;
-;   This file is part of the registered Spectrum emulator package 'Z80'
-;   version 2.01, and may not be distributed.  You may use this source for
-;   other PC based Spectrum or Z80 emulators only after permission.  It is
-;   however permitted to use this source file or parts thereof for Spectrum
-;   or Z80 emulators on non-PC based machines, provided that the source is
-;   acknowledged.
-;
-;                                                       Gerton Lunter, 3/5/93
-
 startup segment para public
 
-; Routines om het spectrum segment in en uit te pakken
+slowproc equ 68                ;see get_line and get_line_86.  HCR tinkering
 
-scrunge:
-;Komt terug met in CX de totale lengte v.h. gescrungde segment
-        push ax
-        push bx
-        push dx
-        push es
-        push ds
-        cld
-        mov ds,cs:specseg
-        push ds
-        pop es
-        mov di,16384
-        mov si,16384
-        mov cx,49152
-        call noblock
-        xor al,al
-        stosb
-        mov al,0ed
-        stosb
-        stosb
-        xor al,al
-        stosb
-        mov cx,di
-        sub ch,64
-        pop ds
-        pop es
-        pop dx
-        pop bx
-        pop ax
-        ret
+movsd macro
+        db 066
+        movsw
+#em
 
-;
-;si wijst naar eerste nog in te lezen karakter
-;bl bevat bloklengte (0-255)
-;ah bevat blok karakter
-;di wijst naar eerste vrije karakter
-;cx bevat nog te scrungen bytes
-;
-scrungeit2:
-        cmp bl,255
-        jz putblock2
-        lodsb
-        cmp al,ah
-        jnz scr_nogood
-        inc bl
-        loop scrungeit2
-        jmp putblock2
-scr_nogood:
-        dec si
-putblock2:
-        cmp ah,0ed
-        jnz no_ed2
-        cmp bl,2
-        jae putblock3
-        mov al,ah
-        stosb
-        jcxz scr_done
-        movsb                           ;om ED 00 00 00 00 ... -->
-        loop noblock                    ;   ED ED ED nn 00 tegen te gaan.
-        jmp scr_done
-no_ed2: cmp bl,4
-        jbe putnormal
-putblock3:
-        mov al,0ed
-        stosb
-        stosb
-        mov al,bl
-        stosb
-        mov al,ah
-        stosb
-        jcxz scr_done
-        jmp noblock
-putnormal:
-        mov al,ah
-putnorm2:
-        stosb
-        dec bl
-        jnz putnorm2
-        jcxz scr_done
-noblock:                        ;Minimaal 1 over (cx >= 1)
-        lodsb
-        mov ah,al
-        mov bl,1
-        loop scrungeit2
-        jmp putblock2
-scr_done:
-        ret
+stosd macro
+        db 066
+        stosw
+#em
+
+lodsd macro
+        db 066
+        lodsw
+#em
+
+cmpsd macro
+        db 066
+        cmpsw
+#em
+
+        testsi2   equ 014b7             ; testsi address ***** HMc *****
+        Ldiradr   equ 020b7             ; ldir address ***** HMc *****
+        Lddradr   equ 022b7             ; lddr address ***** HMc *****
 
 
-
-
-descrungeit:                    ;Out: c=error
-        push ax
-        push bx
-        push cx
-        push dx
-        push es
-        push ds
-        cld
-        mov ds,cs:specseg
-        push ds
-        pop es
-        mov di,16384+3
-        mov cx,49151+3
-find_end4:
-        dec di
-        inc cx
-find_end3:
-        dec di
-        inc cx
-find_end2:
-        mov al,0
-        inc cx
-        dec di
-find_end:
-        repnz scasb
-        jnz not_found
-        dec cx
-        jcxz not_found
-        mov al,0ed
-        scasb
-        jnz find_end2
-        dec cx
-        jcxz not_found
-        scasb
-        jnz find_end3
-        dec cx
-        jcxz not_found
-        xor al,al
-        scasb
-        jnz find_end4
-        lea si,[di-5]
-        mov di,0ffff
-        mov cx,si
-        add cx,1-04000
-        std
-        rep movsb
-        cld
-        mov si,di
-        inc si
-        mov di,16384
-        mov cx,49152
-        call descr_loop
-        cmp di,1
-        cmc
-descr_end:
-        pop ds
-        pop es
-        pop dx
-        pop cx
-        pop bx
-        pop ax
-        ret
-
-;In: cld, es:di wijst naar begin outputbuffer, es:ffff is einde, ds:si
-;    wijst naar begin inputbuffer, es:ffff is einde, cx is aantal bytes.
-;out: c=error
-;     di->end of descrunged block
-descr_loop:
-        cmp si,16384
-        jb not_found
-        cmp di,16384
-        jb not_found
-        cmp b[si],0ed
-        jz maybe_shiftcode
-        movsb
-        loop descr_loop
-        clc
-        ret
-maybe_shiftcode:
-        cmp b[si+1],0ed
-        jz shiftcode
-        movsb
-        loop descr_loop
-        clc
-        ret
-shiftcode:
-        inc si
-        inc si
-        lodsb
-        mov bl,al
-        lodsb
-descr_putblock2:
-        stosb
-        dec cx
-        jz descr_the_end
-        dec bl
-        jnz descr_putblock2
-        cmp cx,49152
-        ja not_found
-        inc cx
-        loop descr_loop
-        clc
-        ret
-not_found:
-        stc
-        ret
-descr_the_end:
-        dec bl
-        jnz not_found
-        ret                     ;nc:ok
-
-
-
-emulate_kbd_interrupt:
-        pushf
-        push cs
-        mov bx,offset eki_ret
-        push bx
-        push ax
-        push bx
-        push cx
-        push dx
-        jmp short keyb_normal_entry
-eki_ret:
-        ret
-
-KEYBOARD:
-        PUSH AX
-        test cs:byte keyscan,1
-        je keyb_nokeyscan
-        mov al,020
-        out 020,al
-        in al,060
-        cmp al,0e0
-        jz return_keyscan
-        cmp al,0e1
-        jz return_keyscan
-        or al,cs:break
-        cmp al,0f0
-        mov byte cs:break,0
-        if z mov byte cs:break,080
-        test al,080
-        if z or cs:byte keyscan,2
-        cmp al,040
-        if z or cs:byte keyscan,4       ;F6
-return_keyscan:
-        in al,061
-        push ax
-        or al,080
-        out 061,al
-        pop ax
-        out 061,al
-        pop ax
-        sti
-        iret
-keyb_nokeyscan:
-        cmp cs:byte modflg,0
-        je keyb_normal
-        pushf
-        call cs:d[offset kbdadr]
-        mov ah,1
-        int 016
-        jz keyb_nokey
-        mov cs:modflg,2                 ;Signaleer 'Toets ingedrukt in real mode'
-        in al,021
-        and al,0fe                      ;Zet timer aan (als ie uitstaat)
-        out 021,al
-keyb_nokey:
-        pop ax
-        sti
-        iret
-keyb_normal:
-        MOV AL,020
-        OUT 020,AL
-        PUSH BX
-        PUSH CX
-        PUSH DX
-        IN AL,060
-keyb_normal_entry:
-        CMP AL,0E0
-        JZ e0GET_OUT
-        CMP AL,0E1
-        JZ GET_OUT
-        test byte cs:e0flag,0ff
-        mov byte cs:e0flag,0
-        jz e0flag_inaktief
-        mov ah,al
-        and ah,07f
-        cmp ah,02a
-        jz get_out
-        cmp ah,036
-        jz get_out
-e0flag_inaktief:
-        CMP AL,0F0
-        JNZ NO_BRK
-        MOV BYTE CS:BREAK,080
-        JMP GET_OUT
-NO_BRK:
-        OR AL,CS:BREAK          ;MAAK ER EEN 'BREAK' VAN ALS ER 0F0 IS GEWEEST
-        MOV AH,AL
-        AND AL,080
-        MOV CS:BREAK,AL         ;ZET IN BREAK 080 ALS BRK
-        MOV AL,AH
-        CMP AL,CS:LASTKEY
-        MOV CS:LASTKEY,AL
-        JZ GET_OUT_NOBRK_2
-        AND AL,07F              ;HAAL BRKBIT ERAF
-        CMP AL,053
-        JA GET_OUT_NOBRK_2
-        TEST AL
-        JZ GET_OUT_NOBRK_2
-        CALL KEY_TRANS
-        MOV BYTE CS:BREAK,0
-GET_OUT:
-        CALL MATRIX_ERROR       ;EMULEER ZX SPECTRUM KEYBOARD MATRIX
-        cmp byte cs:winkey,0
-        jnz dont_reset_kbd
-        IN AL,061
-        PUSH AX
-        OR AL,080
-        OUT 061,AL
-        POP AX
-        OUT 061,AL
-dont_reset_kbd:
-        POP DX
-        POP CX
-        POP BX
-        POP AX
-        sti
-        IRET
-GET_OUT_NOBRK_2:
-        MOV byte CS:BREAK,0
-        JMP GET_OUT
-e0get_out:
-        mov byte cs:e0flag,0ff
-        jmp get_out
-
-KEY_TRANS:
-        PUSH SI
-        MOV BX,offset KEYBTAB1
-        CS:XLATB
-        TEST AL
-        JZ GET_OUT_NOBRK
-        TEST AL,011000000XB
-        JZ NORMAL_CHAR
-        MOV BL,AL
-        AND BX,011111XB
-        MOV SI,BX
-        ROL BX,1
-        TEST byte CS:[SI+SHFTSTATES],1
-        JZ FIRSTTIME                    ;LAAT EERST OUDE TOETS 'INTERN' LOS
-        PUSH WORD CS:BREAK
-        MOV byte CS:BREAK,080           ;LAAT LOS
-        PUSH BX
-        PUSH SI
-        CALL CS:[BX+KEY_ROUTINES]
-        POP SI
-        POP BX
-        POP WORD CS:BREAK
-FIRSTTIME:
-        CMP byte CS:BREAK,080
-        JZ NOCHANGE_AT_BREAKTIME
-        MOV AL,CS:SHIFTSTATE
-        OR AL,1                         ;GEEFT AAN 'KEY PRESSED'
-        MOV CS:[SI+SHFTSTATES],AL
-NOCHANGE_AT_BREAKTIME:
-        PUSH SI
-        CALL CS:[BX+KEY_ROUTINES]
-        POP SI
-        CMP byte CS:BREAK,080
-        IF Z MOV byte CS:[SI+SHFTSTATES],0   ;'KEY RELEASED'
-        JMP GET_OUT_NOBRK
-
-NORMAL_CHAR:
-        CMP AL,8                ;SHIFT
-        JNZ NOSH
-        MOV AH,CS:BREAK
-        MOV CS:SHIFTSTATE,AH
-NOSH:
-        MOV CL,AL
-        MOV AH,080
-        SHR CL,1
-        SHR CL,1
-        SHR CL,1
-        ROL AH,CL
-        CALL SETKBIT
-GET_OUT_NOBRK:
-        MOV byte CS:BREAK,0
-        POP SI
-        RET
-
-
-SETKBIT:
-;ZET EEN BIT IN IN_TAB, AFH.V. BREAK. ENTRY: AH=MASK(COL), AL0-2=ROW
-        MOV BL,AL
-        AND BX,7                ;BX=OFFSET IN_TAB
-        ADD BX,OFFSET IN2_TAB
-        TEST byte CS:BREAK
-        JNZ RESET_BIT
-        OR CS:[BX],AH
-        RET
-RESET_BIT:
-        NOT AH
-        AND CS:[BX],AH
-        RET
-
-set_joystick:
-;Zet een bit in in_tab of in kempston_state, afhankelijk van joymode,
-;de code in AL (0,1,2,3,4 = links,rechts,onder,boven,schieten) en BREAK.
-        xor ah,ah
-        mov bx,ax
-        mov al,cs:joymode
-        add bx,ax
-        shl ax,1
-        shl ax,1
-        add bx,ax
-        shl bx,1
-        mov ax,cs:[bx+joy_tab]
-        push ax
-        cmp byte cs:joymode,0
-        if z call setshft
-        pop ax
-        cmp byte cs:joymode,1
-        jnz setkbit                     ;kempston krijgt 'sonderbehandlung'
-        test byte cs:break
-        jnz reset_kempston_bit
-        or cs:[kempston_state],al
-        ret
-reset_kempston_bit:
-        not al
-        and cs:[kempston_state],al
-        ret
-
-joy_tab:
-        dw 01003,0404,01004,0804,0104
-        dw 2,1,4,8,16
-        dw 0103,0203,0403,0803,01003
-        dw 01004,0804,0404,0204,0104
-
-KEY_ROUTINES:
-        DW KR0,KR1,KR2,KR3,KR4,KR5,KR6,KR7,KR8,KR9,KR10,KR11,KR12,KR13,KR1BIS,kr15
-        DW KR16,KR17,KR18,KR19,KR20,KR21,KR22,KR23,KR24,KR25,KR26,KR27,kr28,kr29
-;Voor elke key routine is er een shiftstate in z80.8 gereserveerd!!!
-
-KR0:
-        MOV AX,0100             ;ESC (=EDIT)
-        CALL SETKBIT
-        MOV AX,0103
-        JMP SETKBIT
-
-KR1:    MOV AX,0207             ;- OF _
-        CALL SETKBIT
-        MOV AL,1                ;KR1
-KR1A:   CALL TESTSHFT
-        MOV AX,0806             ;J (-)
-        IF NZ MOV AX,0104       ;0 (_)
-        JMP SETKBIT
-KR1BIS: MOV AX,0207
-        CALL SETKBIT
-        MOV AL,14
-        JMP KR1A
-
-KR2:    MOV AX,0207             ;+ OF =
-        CALL SETKBIT
-        MOV AL,2
-        CALL TESTSHFT
-        MOV AX,0206             ;L (=)
-        IF NZ MOV AH,4          ;K (+)
-        JMP SETKBIT
-
-KR3:    MOV AX,0100             ;BACKSPACE (=SHFT 0)
-        CALL SETKBIT
-        MOV AX,0104
-        JMP SETKBIT
-
-KR4:    MOV AX,0207             ; ; OF :
-        CALL SETKBIT
-        MOV AL,4
-        CALL TESTSHFT
-        MOV AX,0205             ;O
-        IF NZ MOV AX,0200       ;Z
-        JMP SETKBIT
-
-KR5:    MOV AX,0207             ;" OF '
-        CALL SETKBIT
-        MOV AL,5
-        CALL TESTSHFT
-        MOV AX,0105             ;P
-        IF Z MOV AX,0804
-        JMP SETKBIT
-
-KR6:    cmp byte cs:azerty,0ff
-        jz kr6_az
-        MOV AX,0207             ;, OF <
-        CALL SETKBIT
-        MOV AL,6
-        CALL TESTSHFT
-        MOV AX,0807             ;N
-        IF NZ MOV AX,0802       ;R
-        JMP SETKBIT
-kr6_az: mov ax,0207             ;; or .
-        call setkbit
-        mov al,6
-        call testshft
-        mov ax,0205             ;O
-        if nz mov ax,0407       ;M
-        jmp setkbit
-
-
-KR7:    cmp byte cs:azerty,0ff
-        jz kr7_az
-        MOV AX,0207             ;. OF >
-        CALL SETKBIT
-        MOV AL,7
-        CALL TESTSHFT
-        MOV AX,0407             ;M
-        IF NZ MOV AX,01002      ;T
-        JMP SETKBIT
-kr7_az: mov ax,0207             ;: or /
-        call setkbit
-        mov al,7
-        call testshft
-        mov ax,0200             ;Z
-        if nz mov ah,010        ;V
-        jmp setkbit
-
-
-KR8:    cmp byte cs:azerty,0ff
-        jz kr8_az
-        MOV AX,0207             ;/ OF ?
-        CALL SETKBIT
-        MOV AL,8
-        CALL TESTSHFT
-        MOV AX,01000            ;V
-        IF NZ MOV AH,08         ;C
-        JMP SETKBIT
-kr8_az: mov ax,0207
-        call setkbit            ;, or ?
-        mov al,8
-        call testshft
-        mov ax,0807             ;N
-        if nz mov ax,0800       ;C
-        jmp setkbit
-
-KR9:    MOV AX,0207             ;*
-        CALL SETKBIT
-        MOV AX,01007
-        JMP SETKBIT
-
-KR10:   MOV AX,0100             ;CAPSLOCK
-        CALL SETKBIT
-        MOV AX,0203             ;2
-        call setkbit
-        test byte cs:break
-        jnz ret
-;        PUSH ES
-;        XOR AX,AX
-;        MOV ES,AX
-;        XOR ES:B[0417],040
-;        CALL SET_KBD_LEDS
-;        POP ES
-        ret
-
-KR11:   TEST byte CS:BREAK           ;NUMLOCK
-        JNZ RET
-        test cs:b[in2_tab+7],2       ;CTRL/ALT: dan pauze dwz niks doen
-        jnz ret
-        NOT byte CS:NUMLCK
-;        PUSH ES
-;        XOR AX,AX
-;        MOV ES,AX
-;        XOR ES:B[0417],020
-;        CALL SET_KBD_LEDS
-;        POP ES
-        RET
-
-KR12:   TEST byte CS:BREAK           ;SCROLL LOCK
-        JNZ RET
-        TEST CS:B[IN2_TAB+7],2       ;CTRL/ALT: dan naar DOS
-        JZ kr12_no_ctrlalt
-        mov byte cs:c_active,0fa
-        mov byte cs:c_action_code,0fa     ;zet C flags op aktief, zodat straks bij
-        ret                          ;timerinterrupt C-routine wordt aangeroepen
-                                     ;(zie xtra.c, label ENTRY)
-kr12_no_ctrlalt:
-        TEST CS:B[IN2_TAB],1
-        jz kr12_no_shift
-        MOV byte CS:NMI,0FF     ;ALS SHFT+SCRL_LOCK, DAN NMI
-        ret
-kr12_no_shift:
-;        PUSH ES
-;        XOR AX,AX
-;        MOV ES,AX
-;        XOR ES:B[0417],010      ;toggle scrolllock status
-;        CALL SET_KBD_LEDS
-;        POP ES
-        ret
-
-SET_KBD_LEDS:
-;        push es
-;        xor ax,ax
-;        mov es,ax
-;        in al,060
-;        mov cx,02000
-;set_kbd_leds_delay_twee:
-;        loop set_kbd_leds_delay_twee
-;        MOV AL,0ED
-;        OUT 060,AL
-;        PUSH CX
-;        MOV CX,02004
-;        MOV AL,ES:B[0417]
-;        SHR AL,CL
-;        and al,7
-;SET_KBD_LEDS_DELAY:
-;        LOOP SET_KBD_LEDS_DELAY
-;        OUT 060,AL
-;        POP CX
-;        pop es
-        RET
-
-KR13:   mov al,3                ;omhoog (keypad 8)
-        jmp set_joystick
-
-KR15:   xor al,al               ;links (keypad 4)
-        jmp set_joystick
-
-KR16:   mov al,1                ;rechts (keypad 6)
-        jmp set_joystick
-
-KR17:   MOV AX,0207             ;+ (OF =)
-        CALL SETKBIT
-        MOV AL,17
-        CALL TESTSHFT
-        MOV AX,0406             ;L (+)
-        IF NZ MOV AH,2          ;K (=)
-        JMP SETKBIT
-
-KR18:   mov al,2                ;omlaag (keypad 2)
-        jmp set_joystick
-
-kr19:   mov al,4                     ;INS/DEL/5/TAB: schieten.
-        jmp set_joystick
-
-
-
-SETSHFT:
-        mov al,CS:NUMLCK
-        cmp byte cs:rommod,2
-        if a xor al,cs:curs128
+install_all:
+        mov al,cs:_usercoloremu
+        and al,1
+        neg al
+        test word cs:_nohcrmem  ;No hcr memory buffers?
+        if nz xor al,al
+        cmp byte cs:gmod,5           ;vga?
+        if nz xor al,al         ;If not then no hi res color emulation
+        test byte cs:modflg     ;real mode?
+        if nz xor al,al         ;no hcr in real mode either
+        test byte cs:_vocplay
+        if nz xor al,al         ;and neither while playing voc files
+        test byte cs:_outlog
+        if nz xor al,al         ;and neither while logging outs
+        mov cs:coloremu,al
         test al
-        JZ RET
-        MOV AX,0100
-        JMP SETKBIT
+        je rri_nohcr
+        mov byte cs:linecounter,1     ;In hrc emul mode, reset hcr vars
+        mov es,cs:vgahcrborbuf
+        mov al,cs:borclr
+        mov es:[2],al
+        mov es:w[0],0
+        mov byte cs:bornochange,-3
+        mov word cs:vgahcrborbufptr,3
+        cmp byte cs:viertel,0
+        jne rri_nohcr
+        mov word cs:dispaddrpointer,offset vga_coloremu_table+4*95
+        mov word cs:vgahcrbufpointer,164+40*95
+rri_nohcr:
+        mov al,cs:coloremu
+        or al,cs:winkey
+        or al,cs:_vocplay
+        or al,cs:_outlog
+        mov cs:countt,al
 
-TESTSHFT:
-        MOV BL,AL
-        XOR BH,BH
-        TEST byte CS:BREAK
-        JZ NOBRK
-        CMP byte CS:[SHFTSTATES+BX],1
-        JZ WAS_SHFT
-        CMP AL,AL
-        RET
-WAS_SHFT:
-        CMP byte CS:SHIFTSTATE,0
-        IF Z OR CS:B[IN2_TAB],1
-        RET                             ;ALTIJD NZ
-NOBRK:
-        AND CS:B[IN2_TAB],0FE
-        CMP byte CS:[SHFTSTATES+BX],081
-        RET
+        mov word cs:tquarter,17472
+        mov word cs:tconst,224
+        mov word cs:tconstlabel1,224
+        mov word cs:tconstlabel2,224
+        mov word cs:tconstlabel4,17472
+        push es
+        mov ax,seg emulate
+        mov es,ax
+        mov word es:tconstlabel3,224
+        mov byte es:hcr_tinker1,34
+        mov byte es:hcr_tinker2,34
+        mov byte es:hcr_tinker3,34
+        mov byte es:hcr_tinker4,34
+        pop es
 
-MATRIX_ERROR:
-        PUSH SI
-        PUSH DI
-        PUSH DS
-        PUSH ES
-        CLD
-        PUSH CS
-        PUSH CS
-        POP DS
-        POP ES
-        MOV SI,offset IN2_TAB
-        MOV DI,offset IN_TAB
-        MOVSW
-        MOVSW
-        MOVSW
-        MOVSW
-        MOV SI,offset IN_TAB
-        MOV DX,7
-MATRIX_LOOP:
-        LODSB
-        MOV AH,AL
-        MOV CX,DX
-        MOV DI,SI
-M_INNER_LOOP:
-        MOV AL,[DI]             ;HAAL VERDEROPLIGGENDE WAARDE
-        TEST AL,AH              ;GELIJKE TOETSEN?
-        JZ NO_EQ_KEY            ;GEEN GELIJKE TOETS INGEDRUKT
-        OR AL,AH                ;OR VERDEROPLIGGENDE WAARDE MET HUIDIGE WAARDE
-        MOV AH,AL
-NO_EQ_KEY:
-        STOSB                   ;ZET NIEUWE WAARDE WEG & INC DI
-        LOOP M_INNER_LOOP
-        NOT AH
-        OR AH,011100000XB
-        MOV [SI-1],AH
-        DEC DX
-        JNZ MATRIX_LOOP
-        NOT B[SI]
-        OR B[SI],011100000XB
-        POP ES
-        POP DS
-        POP DI
-        POP SI
-        RET
+; T=0 == upper border part; viertel=0 == first screen line
+; T0 = offset for block; tstates0 = length of 1st block/line (border/screen)
+; viertel = 3 : T = 0 Tstates           ;tstates0 = 14336 ;l0 = (256)-1
+;           0 : T = 64*224 =    14336 T ;tstates0 =   112            -96
+;           1 : T = 159.5*224 = 35728 T ;tstates0 =   224            -97
+;           2 : T = 256.5*224 = 57456 T ;tstates0 = 12432            -1
+;hcr_border0: (ed.8): T = -224linecounter - tstates
+;T = 224l0 - 224linecounter - tstates + tstates0 + T0
+;offset = 224l0 + T0 + tstates0
+;
 
-MSTOSB:
-        xor al,cs:b[offset checksum]
-        ADD AL,CS:[BP]
-        xor al,cs:b[offset checksum+1]
-        INC BP
-        CMP BP,OFFSET inbuf+256
-        IF Z MOV BP,OFFSET inbuf
-        STOSB
+        mov cs:tconst0,224*1 + 0 + 14336
+        mov cs:tconst1,224*96 + 14336 + 112
+        mov cs:tconst2,224*97 + 35728 + 224
+        mov cs:tconst3,224*1 + 57456 + 12432
+
+        mov cs:tconst4,64*224-224       ;the -224 is to compensate for extra add
+        mov cs:tconst5,55*224+112-224   ;same here
+        mov cs:tconst6,60*224-4*4       ;time of upper left border byte displayed
+        cmp byte cs:rommod,4            ;128?
+        jb rri_no128
+
+        mov word cs:tquarter,17727
+        mov word cs:tconst,228
+        mov word cs:tconstlabel1,228
+        mov word cs:tconstlabel2,228
+        mov word cs:tconstlabel4,17727
+        push es
+        mov ax,seg emulate
+        mov es,ax
+        mov word es:tconstlabel3,228
+        mov byte es:hcr_tinker1,45
+        mov byte es:hcr_tinker2,45
+        mov byte es:hcr_tinker3,45
+        mov byte es:hcr_tinker4,45
+        pop es
+
+        mov cs:tconst0,228*1 + 0 + 14364        ;14364=63*228
+        mov cs:tconst1,228*96 + 14364 + 114
+        mov cs:tconst2,228*97 + 36138 + 228
+        mov cs:tconst3,228*1 + 58254 + 12654
+
+        mov cs:tconst4,63*228-228
+        mov cs:tconst5,55*228+114-228
+        mov cs:tconst6,59*228-4*4
+rri_no128:
+        call install_blaster
+        call speed_convert              ;maybe hi color emu mode changed?
+        CALL HOESNEL
+        CALL RREG_INST
+        CALL LDIR_INST
+        CALL SILENCE_INST
         ret
 
-SCRUNGEIT:
-        CLD
-        PUSH CS
-        POP ES
-        MOV SI,081
-        LODSB
-        CMP AL,020
-        IF NZ DEC SI
-        MOV DI,OFFSET INBUF
-SCRCPY: LODSB
-        STOSB
-        CMP AL,0D
-        JNZ SCRCPY
-        MOV AX,SEG OPC0
-        MOV DS,AX
-        MOV ES,AX
-        XOR SI,SI
-        XOR DI,DI
-        MOV CX,0FFEF
-        MOV BP,OFFSET INBUF
-SCR0:   CMP W[SI],03D8A
-        JNZ NOBLK
-;        CMP W[SI+2],0DB32
-;        JNZ NOBLK
-        CMP W[SI+2],0E3FF
-        JNZ NOBLK
-        CMP W[SI+4],09090
-        JNZ NOBLK
-        CMP W[SI+6],09090
-        JNZ NOBLK
-        CMP B[SI+8],090
-        JNZ NOBLK
-        ADD SI,9
-        SUB CX,8
-        MOV AL,0
-        call mstosb
-        MOV AL,092
-        call mstosb
-        MOV AL,090
-        call mstosb
-        LOOP SCR0
 
-NOBLK:  CMP W[SI],0
-        JNZ __NOZERO
-        CMP W[SI+2],0
-        JNZ __NOZERO
-        MOV DX,0
-COUNTZERO:
-        CMP DX,0100
-        JZ EOBFOUND
-        CMP CX,-1
-        JZ EOBFOUND
-        LODSB
-        INC DX
-        DEC CX
-        TEST AL,AL
-        JZ COUNTZERO
-EOBFOUND:
-        DEC DL
-        INC CX
-        DEC SI
-        MOV AL,DL
-        call mstosb
-        MOV AL,092
-        call mstosb
-        MOV AL,090
-        call mstosb
-        JCXZ SCR_FINISHED
-        JMP SCR0
-__NOZERO: CMP W[SI],09092
-        JZ NOPSFOUND
-        LODSB
-        call mstosb
-        DEC CX
-        IF NZ JMP SCR0
-        JMP SCR_FINISHED
-NOPSFOUND:
-        MOV AL,1
-        call mstosb
-        LODSB
-        call mstosb
-        LODSB
-        call mstosb
-        DEC CX
-        DEC CX
-        JMP SCR0
-SCR_FINISHED:
-        MOV AX,BP
-        STOSW
-        MOV CS:ROMADR,DI
-        mov ah,062
-        int 021
-        mov ds,bx
-        mov ds,[02c]
-        xor si,si
-getprogname:
-        lodsb
-        and al,al
-        jnz getprogname
-        lodsb
-        and al,al
-        jnz getprogname
-        inc si
-        inc si
-        mov dx,si
-        mov ax,03d02
-        int 021
-        jc interr
-        mov bx,ax
-        mov ah,03f
-        mov cx,10
-        push cs
-        pop ds
-        mov dx,exeheader
-        int 021
-        jc interr
-        mov ax,04202
-        mov dx,-0fff0
-        mov cx,-1
-        int 021
-        push es
-        pop ds
-        mov ah,040
-        xor dx,dx
-        mov cx,di
-        int 021
-        jnc noerr
-interr: mov dx,ierr
-        jmp print
-noerr:  mov ax,04201
-        xor cx,cx
-        xor dx,dx
-        int 021
-        push dx
+
+;Code for hi res color emulation on <=286 cpu's
+
+
+ihc_quarter_86:
+        mov cs:b[linecounter],1         ;default value
+        mov bl,cs:viertel
+        dec bl
+        je ihc_finish_86                ;if was 1, then will be 2, finished grabbing
+        dec bl
+        je ihc_upborder_86              ;if was 2 do upper border part
+        dec bl
+        je ihc_videmul_86               ;if was 3 do upper screen part
+        mov cs:b[linecounter],97        ;half a screen
+        call get_line_86                ;get final line of prev. half too
+        jmp bare_inter_handler
+ihc_upborder_86:
+        mov bx,cs:tconst4
+        add cs:w[_tstates],bx           ;Next breakpoint at 64 lines after interr.
+        mov byte cs:vgahcrnodata,0      ;Signal: data in hcr buffer (will be) ok
+        call ihc_border_86
+        jmp bare_inter_handler          ; (-244 to compensate for add in ihc itself)
+ihc_videmul_86:
+        mov bx,cs:tconst
+        shr bx,1
+        sub bx,cs:tconst
+        add cs:w[_tstates],bx           ;Start vid. emul. halfway line 0
+        mov word cs:dispaddrpointer,offset vga_coloremu_table
+        mov word cs:vgahcrbufpointer,164        ;(4*40*2+8)/2
+        mov cs:b[linecounter],96        ;half a screen
+        jmp bare_inter_handler
+
+
+;
+;The following routine is called _very_ often in hi color emu mode
+;
+inter_handler_coloremu_86:
+        cld
+        add cs:w[_tstates],224          ;reset T states counter.  Don't bother
+tconstlabel1 equ $-2                    ; about tstatehi.
+        dec cs:b[linecounter]           ;Decrease line counter. If it was 1
+        je ihc_quarter_86               ; then a '200 Hz' interrupt has to be
+                                        ; generated, and the video emulation
+                                        ; has to be started/stopped.
+        call get_line_86
+        jmp far emulate_0
+
+
+ihc_finish_86:
+        mov bx,cs:tconst5
+        add cs:w[_tstates],bx           ;Still 55.5 lines to do
         push ax
-        mov cx,ax
-        xchg dl,dh
-        shr dx,1
-        and cx,511
-        sub ax,cx
-        xchg ah,al
-        shr ax,1
-        add ax,dx               ;ax:cx is lengte
-        test cx,cx
-        if nz inc ax
-        mov cs:w[offset exeheader+2],cx
-        mov cs:w[offset exeheader+4],ax
-        mov ax,04200
-        xor cx,cx
-        xor dx,dx
-        int 021
-        mov ah,040
-        mov cx,10
-        push cs
+        push cx
+        push dx
+        push bp
+        push si
+        push di
+        push ds
+        push es
+        mov ax,cs:[vgahcrbuf]
+        mov es,ax                       ;ds->specseg
+        cmp byte cs:vgahcrnodata,0ff
+        if ne jmp ihcf_ok_86
+        test byte cs:hstate,8           ;Is the screen at page 7 now?
+        mov si,04000
+        je ihcf_si_86                   ;Nope, page 5 is (fixed at 4000)
+        cmp byte cs:[ramstate+3],10     ;Page 7 in bank 3?
+        mov si,0c000
+        je ihcf_si_86
+        mov si,04000
+        test word cs:emshandle          ;Hope we're not using EMS
+        je ihcf_second_in_ram_86
+        mov ax,010a
+        call swap_mem
+        jmp short ihcf_si_86
+ihcf_second_in_ram_86:
+        mov ax,cs:romseg
+        add ax,9*0400
+        push ax
+        pop ds                  ;ds:04000 = page 7, int. page 10
+ihcf_si_86:
+        mov di,164
+        mov bl,192
+ihcf_ved_0_86:
+        mov cx,32/2
+        rep movsw
+        add si,256-32
+        test si,2048-256
+        jne ihcf_ved_00_86
+        add si,32-2048
+        test si,255
+        jne ihcf_ved_00_86
+        add si,2048-256
+ihcf_ved_00_86:
+        add di,8
+        dec bl
+        jne ihcf_ved_0_86
+        mov bl,24
+        mov di,8192+164
+ihcf_ved_2_86:
+        mov bh,8
+ihcf_ved_3_86:
+        mov cx,32/2
+        rep movsw
+        add di,8
+        sub si,32
+        dec bh
+        jne ihcf_ved_3_86
+        add si,32
+        dec bl
+        jne ihcf_ved_2_86
+        mov ax,0108
+        cmp byte cs:[ramstate+1],10
+        if e call swap_mem
+ihcf_ok_86:
+        mov ax,es
+        mov ds,ax
+        mov bp,ax
+        test byte cs:fflag
+        je ihc_f_noflash_86
+        mov byte cs:fflag,0
+        mov si,164+8192
+        mov cx,(192*40)/2 - 4
+        mov dx,08080
+ihc_zero_flash_86:
+        lodsw
+        and ax,dx
+        not ax
+        and [si+16384-2],ax
+        loop ihc_zero_flash_86
+ihc_f_noflash_86:
+        mov dx,0b800
+        mov di,16384+164
+        mov si,164
+        mov cx,(192*40)/2 - 4           ;192 lines of 40 bytes, minus 2x2 words
+        cmp al,al
+ihc_screen_86:
+        repz
+        cmpsw
+        jz ihc_attr_86
+        mov ax,[si-2]
+        mov [di-2],ax
+        mov ds,dx
+        add si,si
+        mov b[si-4],al
+        mov b[si-2],ah
+        shr si,1
+        mov ds,bp
+        cmp al,al
+        jmp ihc_screen_86
+ihc_attr_86:
+        mov bx,offset vga_workspace
+        add bx,cs:fstate
+        mov cx,(192*40)/2 - 4           ;192 lines of 40 bytes, minus 2x2 words
+        mov si,164+8192
+        mov di,164+8192+16384
+        cmp al,al
+ihc_atrloop_86:
+        repz
+        cmpsw
+        jz ihc_end_86
+        mov ax,[si-2]
+        mov [di-2],ax
+        add si,si
+        cs:xlatb
+        mov ds,dx
+        mov b[si-04003],al
+        mov al,ah
+        cs:xlatb
+        mov b[si-04001],al
+        mov ds,bp
+        shr si,1
+        cmp al,al
+        jmp ihc_atrloop_86
+ihc_end_86:
+        pop es
         pop ds
-        mov dx,offset exeheader
-        int 021
-        jc interr
-        mov ax,cs
-        add ax,cs:w[offset exeheader+8]         ;header size
-        sub ax,seg _first_func
-        mov dl,4
-        xor cx,cx
-times16:
-        shl ax,1
-        rcl cx,1
-        dec dl
-        jnz times16
-        add ax,offset romadr
-        adc cx,0
-        mov dx,ax
-        mov ax,04200
-        int 021
-        push cs
-        pop ds
-        mov dx,offset romadr
-        mov cx,2+256
-        mov ah,040
-        int 021
+        pop di
+        pop si
+        pop bp
         pop dx
         pop cx
-        mov ax,04200
-        int 021
-        mov ah,040
+        pop ax
+        jmp bare_inter_handler
+
+
+get_line_86:
+        push ax
+        push si
+        push di
+        push es
+        cmp di,32768
+        jae get_line_notinlowram_86
+        cmp di,16384
+        jb get_line_notinlowram_86
+        sub cs:w[_tstates],slowproc     ;to account for slower processing (tricky)
+get_line_notinlowram_86:
+        mov si,cs:[dispaddrpointer]
+        cs:lodsw                        ;get attr offset
+        mov bx,ax
+        cs:lodsw                        ;get screen address
+        mov cs:[dispaddrpointer],si
+        les di,cs:[vgahcrbufpointer]    ;get pointer into hcr buffer
+        add ax,cs:vgahcrscroffset       ;maybe screen is in bank 3
+        jc get_line_err_86
+        mov si,ax
+move8 macro
+        movsw
+        movsw
+        movsw
+        movsw
+#em
+        move8
+        move8
+        move8
+        move8
+        add di,8192-32                  ;go to attr part
+        add si,bx                       ;go to attr area on spec. screen
+        move8
+        move8
+        move8
+        move8
+        add di,8-8192                   ;go to next line in hcr buffer
+get_line_end_86:
+        mov cs:[vgahcrbufpointer],di
+        pop es
+        pop di
+        pop si
+        pop ax
+        ret
+get_line_err_86:
+        mov byte cs:vgahcrnodata,0ff
+        add di,40
+        jmp get_line_end_86
+
+
+ihc_border_86:
+        cmp byte cs:bornochange,0ff
+        je ret
+        inc byte cs:bornochange
+        push ax
+        push cx
+        push dx
+        push si
+        push di
+        push ds
+        push es
+        les di,cs:vgahcrborbufptr
+        mov al,es:[di-1]
+        mov cs:borclr,al
+        mov ax,-1
+        stosw
+        mov ax,es
+        mov ds,ax
+        xor si,si
+        lodsw
+        mov bx,ax                       ;bx = next OUT time (0 at first)
+        mov ax,0b800
+        mov es,ax
+        xor di,di
+        mov dx,cs:tconst6               ;start of first border line displayed
+        call ihc_border4_86             ;display first 4 lines
+        call ihc_border4_86
+        call ihc_border4_86
+        call ihc_border4_86
+        mov cx,192
+ihc_borderloop_86:
+        add dx,cs:tconst                ;next line
+        cmp bx,dx                       ;is border fixed at this line?
+        jb ihc_border3_86               ;if not jump
+        stosw                           ;2 bytes = 1 attr
+        stosw
+        stosw
+        stosw
+        add di,64
+        stosw
+        stosw
+        stosw
+        stosw
+loopihc_borderloop_86:
+        loop ihc_borderloop_86
+        call ihc_border4_86                ;display final 4 lines
+        call ihc_border4_86
+        call ihc_border4_86
+        call ihc_border4_86
+        mov al,cs:newbor
+        mov b[2],al
+        mov w[0],0                      ;Store OUT at time 0
+        mov word cs:vgahcrborbufptr,3
+        pop es
+        pop ds
+        pop di
+        pop si
+        pop dx
+        pop cx
+        pop ax
+        ret
+
+ihc_border3_86:
+        sub dx,cs:tconst                ;restore actual value of T
+        push cx
+        mov cx,0404                     ;4 bytes
+ihc_borderleft_86:
+        cmp bx,dx                       ;has there been an OUT before T?
+        jae ihc_noborchange_86          ;If not jump
+ihc_bl_next_86:
+        inc si                          ;skip color of last OUT
+        lodsw                           ;new OUT time
+        cmp ax,dx
+        jb ihc_bl_next_86
+        mov bx,ax
+        mov ah,[si-3]
+        and ax,0700
+        shl ax,cl
+ihc_noborchange_86:
+        stosw                           ;store byte
+        add dx,4
+        dec ch
+        jne ihc_borderleft_86
+        add dx,32*4
+        add di,64
+        mov cx,0404                     ;4 bytes at the right
+ihc_borderright_86:
+        cmp bx,dx                       ;has there been an OUT before T?
+        jae ihc_noborchanger_86         ;If not jump
+ihc_br_next_86:
+        inc si                          ;skip color
+        lodsw
+        cmp ax,dx
+        jb ihc_br_next_86
+        mov bx,ax
+        mov ah,[si-3]
+        and ax,0700
+        shl ax,cl
+ihc_noborchanger_86:
+        stosw                           ;store byte
+        add dx,4
+        dec ch
+        jne ihc_borderright_86
+        sub dx,128+32                   ;go back to time of leftmost borderbyte
+        add dx,cs:tconst                ;next line
+        pop cx
+        jmp loopihc_borderloop_86
+
+ihc_border4_86:                         ;Display a whole line
+        add dx,cs:tconst                ;next line
+        cmp bx,dx                       ;is border fixed at this line?
+        jb ihc_border43_86              ;if not jump
+        mov cx,40
+        rep stosw
+        ret
+ihc_border43_86:
+        sub dx,cs:tconst                ;restore actual value of T
+        mov cx,02804                    ;40 bytes
+ihc_border44_86:
+        cmp bx,dx                       ;has there been an OUT before T?
+        jae ihc_noborchange4_86         ;If not jump
+ihc_bl_next4_86:
+        inc si                          ;skip color
+        lodsw
+        cmp ax,dx
+        jb ihc_bl_next4_86
+        mov bx,ax
+        mov ah,[si-3]
+        and ax,0700
+        shl ax,cl
+ihc_noborchange4_86:
+        stosw                           ;store byte
+        add dx,4
+        dec ch
+        jne ihc_border44_86
+        sub dx,128+32                   ;(40*4)
+        add dx,cs:tconst                ;horizontal retrace
+        ret
+
+
+
+
+;Code for hi res color emulation on >= 386 cpu's
+
+ihc_quarter:
+        mov cs:b[linecounter],1         ;default value
+        mov bl,cs:viertel
+        dec bl
+        je ihc_finish                   ;if was 1, then will be 2, finished grabbing
+        dec bl
+        je ihc_upborder                 ;if was 2 do upper border part
+        dec bl
+        je ihc_videmul                  ;if was 3 do upper screen part
+        mov cs:b[linecounter],97        ;half a screen
+        call get_line                   ;get final line of prev. half too
+        jmp bare_inter_handler
+ihc_upborder:
+        mov bx,cs:tconst4
+        add cs:w[_tstates],bx           ;Next breakpoint at 64 lines after interr.
+        mov byte cs:vgahcrnodata,0      ;Signal: data in hcr buffer (will be) ok
+        call ihc_border
+        jmp bare_inter_handler          ; (-244 to compensate for add in ihc itself)
+ihc_videmul:
+        mov bx,cs:tconst
+        shr bx,1
+        sub bx,cs:tconst
+        add cs:w[_tstates],bx           ;Start vid. emul. halfway line 0
+        mov word cs:dispaddrpointer,offset vga_coloremu_table
+        mov word cs:vgahcrbufpointer,164        ;(4*40*2+8)/2
+        mov cs:b[linecounter],96        ;half a screen
+        jmp bare_inter_handler
+
+
+;
+;The following routine is called _very_ often in hi color emu mode
+;
+inter_handler_coloremu:
+        cld
+        add cs:w[_tstates],224          ;reset T states counter.  Don't bother
+                                        ; about tstatehi.
+tconstlabel2 equ $-2
+        dec cs:b[linecounter]           ;Decrease line counter. If it was 1
+        je ihc_quarter                  ; then a '200 Hz' interrupt has to be
+                                        ; generated, and the video emulation
+                                        ; has to be started/stopped.
+        call get_line
+        jmp far emulate_0
+
+
+ihc_finish:
+        mov bx,cs:tconst5
+        add cs:w[_tstates],bx            ;Still 55.5 lines to do
+        push ax
+        push cx
+        push si
+        push di
+        push ds
+        push es
+        mov ax,cs:[vgahcrbuf]
+        mov es,ax
+        cmp byte cs:vgahcrnodata,0ff
+        if ne jmp ihcf_ok
+        test byte cs:hstate,8           ;Is the screen at page 7 now?
+        mov si,04000
+        je ihcf_si                      ;Nope, page 5 is (fixed at 4000)
+        cmp byte cs:[ramstate+3],10     ;Page 7 in bank 3?
+        mov si,0c000
+        je ihcf_si
+        mov si,04000
+        test word cs:emshandle          ;Hope we're not using EMS
+        je ihcf_second_in_ram
+        mov ax,010a
+        call swap_mem
+        jmp short ihcf_si
+ihcf_second_in_ram:
+        mov ax,cs:romseg
+        add ax,9*0400
+        push ax
+        pop ds                  ;ds:04000 = page 7, int. page 10
+ihcf_si:
+        mov di,164
+        mov bl,192
+ihcf_ved_0:
+        mov cx,32/4
+        rep
+        db 066
+        movsw
+        add si,256-32
+        test si,2048-256
+        jne ihcf_ved_00
+        add si,32-2048
+        test si,255
+        jne ihcf_ved_00
+        add si,2048-256
+ihcf_ved_00:
+        add di,8
+        dec bl
+        jne ihcf_ved_0
+        mov bl,24
+        mov di,8192+164
+ihcf_ved_2:
+        mov bh,8
+ihcf_ved_3:
+        mov cx,32/4
+        rep
+        db 066
+        movsw
+        add di,8
+        sub si,32
+        dec bh
+        jne ihcf_ved_3
+        add si,32
+        dec bl
+        jne ihcf_ved_2
+        mov ax,0108
+        cmp byte cs:[ramstate+1],10
+        if e call swap_mem
+ihcf_ok:
+        mov ax,es
+        mov ds,ax
+        test byte cs:fflag
+        je ihc_f_noflash
+        mov byte cs:fflag,0
+        mov si,164+8192
+        mov cx,(192*40)/4 - 2
+        db 066
+        mov bx,08080
+        dw 08080
+ihc_zero_flash:
+        lodsd
+        db 066
+        and ax,bx
+        db 066
+        not ax
+        db 066
+        and [si+16384-4],ax
+        loop ihc_zero_flash
+ihc_f_noflash:
+        mov ax,0b800
+        db 08e,0e0                      ;mov fs,ax
+        mov di,16384+164
+        mov si,164
+        mov cx,(192*40)/4 - 2           ;192 lines of 40 bytes, minus 1x2 dwords
+        cmp al,al
+ihc_screen:
+        repz
+        cmpsd
+        jz ihc_attr
+        sub si,4
+        sub di,4
+        mov bx,si
+        lodsd
+        stosd
+        db 064                          ;fs:
+        mov b[si+bx-4],al
+        db 064
+        mov b[si+bx-2],ah
+        db 066
+        shr ax,16
+        db 064
+        mov b[si+bx],al
+        db 064
+        mov b[si+bx+2],ah
+        cmp al,al
+        jmp ihc_screen
+ihc_attr:
+        mov bx,offset vga_workspace
+        add bx,cs:fstate
+        mov cx,(192*40)/4 - 2           ;192 lines of 40 bytes, minus 2x1 dwords
+        mov si,164+8192
+        mov di,164+8192+16384
+        cmp al,al
+ihc_atrloop:
+        repz
+        cmpsd
+        jz ihc_end
+        sub si,4
+        sub di,4
+        lodsd
+        stosd
+        add si,si
+        cs:xlatb
+        db 064                          ;fs:
+        mov b[si-04007],al
+        db 066
+        shr ax,8
+        cs:xlatb
+        db 064
+        mov b[si-04005],al
+        db 066
+        shr ax,8
+        cs:xlatb
+        db 064
+        mov b[si-04003],al
+        mov al,ah
+        cs:xlatb
+        db 064
+        mov b[si-04001],al
+        shr si,1
+        cmp al,al
+        jmp ihc_atrloop
+ihc_end:
+        pop es
+        pop ds
+        pop di
+        pop si
+        pop cx
+        pop ax
+        jmp bare_inter_handler
+
+
+ihc_border:
+        cmp byte cs:bornochange,0ff
+        je ret
+        inc byte cs:bornochange
+        push ax
+        push cx
+        push dx
+        push si
+        push di
+        push ds
+        push es
+        les di,cs:vgahcrborbufptr
+        mov al,es:[di-1]
+        mov cs:borclr,al
+        mov ax,-1
+        stosw
+        mov ax,es
+        mov ds,ax
+        xor si,si
+        lodsw
+        mov bx,ax                       ;bx = next OUT time (0 at first)
+        mov ax,0b800
+        mov es,ax
+        xor di,di
+        mov dx,cs:tconst6               ;start of first border line displayed
+        call ihc_border4                ;display first 4 lines
+        call ihc_border4
+        call ihc_border4
+        call ihc_border4
+        mov cx,192
+ihc_borderloop:
+        add dx,cs:tconst                ;next line
+        cmp bx,dx                       ;is border fixed at this line?
+        jb ihc_border3                  ;if not jump
+        stosd                           ;4 bytes = 2 attrs
+        stosd
+        add di,64
+        stosd
+        stosd
+loopihc_borderloop:
+        loop ihc_borderloop
+        call ihc_border4                ;display final 4 lines
+        call ihc_border4
+        call ihc_border4
+        call ihc_border4
+        mov al,cs:newbor
+        mov b[2],al
+        mov w[0],0                      ;Store OUT at time 0
+        mov word cs:vgahcrborbufptr,3
+        pop es
+        pop ds
+        pop di
+        pop si
+        pop dx
+        pop cx
+        pop ax
+        ret
+
+ihc_border3:
+        sub dx,cs:tconst                ;restore actual value of T
+        push cx
+        mov cx,4                        ;4 bytes
+ihc_borderleft:
+        cmp bx,dx                       ;has there been an OUT before T?
+        jae ihc_noborchange             ;If not jump
+ihc_bl_next:
+        inc si                          ;skip color of last OUT
+        lodsw                           ;new OUT time
+        cmp ax,dx
+        jb ihc_bl_next
+        mov bx,ax
+        mov ah,[si-3]
+        and ax,0700
+        shl ax,4
+ihc_noborchange:
+        stosw                           ;store byte
+        add dx,4
+        loop ihc_borderleft
+        add dx,32*4
+        add di,64
+        mov cx,4                        ;4 bytes at the right
+ihc_borderright:
+        cmp bx,dx                       ;has there been an OUT before T?
+        jae ihc_noborchanger            ;If not jump
+ihc_br_next:
+        inc si                          ;skip color
+        lodsw
+        cmp ax,dx
+        jb ihc_br_next
+        mov bx,ax
+        mov ah,[si-3]
+        and ax,0700
+        shl ax,4
+ihc_noborchanger:
+        stosw                           ;store byte
+        add dx,4
+        loop ihc_borderright
+        sub dx,128+32                   ;horizontal retrace
+        add dx,cs:tconst
+        db 066
         xor cx,cx
-        int 021
-        mov ah,03e
-        int 021
-        if c jmp interr
-        mov ax,04c00
-        int 021
+        mov cx,ax
+        db 066
+        shl ax,16
+        db 066
+        or ax,cx                        ;make 32 bit color value
+        pop cx
+        jmp loopihc_borderloop
+
+ihc_border4:                            ;Display a whole line
+        add dx,cs:tconst                ;next line
+        cmp bx,dx                       ;is border fixed at this line?
+        jb ihc_border43                 ;if not jump
+        mov cx,20
+        rep
+        stosd
+        ret
+ihc_border43:
+        sub dx,cs:tconst                ;restore actual value of T
+        mov cx,40                       ;40 bytes
+ihc_border44:
+        cmp bx,dx                       ;has there been an OUT before T?
+        jae ihc_noborchange4            ;If not jump
+ihc_bl_next4:
+        inc si                          ;skip color
+        lodsw
+        cmp ax,dx
+        jb ihc_bl_next4
+        mov bx,ax
+        mov ah,[si-3]
+        and ax,0700
+        shl ax,4
+ihc_noborchange4:
+        stosw                           ;store byte
+        add dx,4
+        loop ihc_border44
+        sub dx,128+32                   ;horizontal retrace
+        add dx,cs:tconst
+        db 066
+        xor cx,cx
+        mov cx,ax
+        db 066
+        shl ax,16
+        db 066
+        or ax,cx                        ;make 32 bit color value
+        ret
+
+
+
+
+
+get_line:
+        push ax
+        push si
+        push di
+        push es
+        cmp di,32768
+        jae get_line_notinlowram
+        cmp di,16384
+        jb get_line_notinlowram
+        sub cs:w[_tstates],slowproc     ;to account for slower processing
+get_line_notinlowram:
+        mov si,cs:[dispaddrpointer]
+        cs:lodsw                        ;get attr offset
+        mov bx,ax
+        cs:lodsw                        ;get screen address
+        mov cs:[dispaddrpointer],si
+        les di,cs:[vgahcrbufpointer]    ;get pointer into hcr buffer
+        add ax,cs:vgahcrscroffset       ;maybe screen is in bank 3
+        jc get_line_err
+        mov si,ax
+        movsd
+        movsd
+        movsd
+        movsd
+        movsd
+        movsd
+        movsd
+        movsd
+        add di,8192-32                  ;go to attr part
+        add si,bx                       ;go to attr area on spec. screen
+        movsd
+        movsd
+        movsd
+        movsd
+        movsd
+        movsd
+        movsd
+        movsd
+        add di,8-8192                   ;go to next line in hcr buffer
+get_line_end:
+        mov cs:[vgahcrbufpointer],di
+        pop es
+        pop di
+        pop si
+        pop ax
+        ret
+get_line_err:
+        mov byte cs:vgahcrnodata,0ff
+        add di,40
+        jmp get_line_end
 
 
 ;
 ;The following routine is called from the actual emulator code, when in
-;Windows compatibility mode. The code calling it is assembled by rreg_makeblock.
+;Windows compatibility mode or playing a voc file. The code calling it is
+;assembled by rreg_makeblock.
 ;
 inter_handler:
-        mov cs:w[tstates],-17470        ;reset T state counter
-        pushf
-        mov bx,seg emulate
+        add cs:w[_tstates],17472         ;reset T state counter
+tconstlabel4 equ $-2
+        inc cs:w[_tstatehi]
+        push cx
         push bx
-        mov bx,offset emulate
-        push bx
+        mov cx,0ffff                    ;signal '1/200s tick'
+        mov bx,cs:tquarter              ;17472 or 17727 T states
+        test byte cs:tracing
+        if z call outlog_save5bytes     ;save to outlog file if logging outs
+        pop bx                          ; but do not when tracing.
+        pop cx
+bare_inter_handler:
         push ax
-        jmp win_comp_entry
+        push bx
+        push cx
+        push dx
+        push bp
+        mov byte cs:lastvocbit,0        ;Signal: Bit invalid (counter wrapped)
+        jmp short win_comp_entry
 
 endint1_x: jmp endint1
 
@@ -943,22 +954,28 @@ TIMER:  STI
         PUSH AX
         MOV AL,020
         OUT 020,AL
-        MOV AL,CS:INTTEL
+        test byte cs:countt             ;When playing a VOC file or emulating
+        jnz endint1_x                   ; hires colours, use T state counter
+        MOV AL,CS:INTTEL                ; instead of timer interrupt.
         INC AL
         CMP AL,CS:MAXTEL
         JB NOTMAX
-        MOV AL,0
+        xor al,al
 NOTMAX: MOV CS:INTTEL,AL
         jnz endint1_x
         cmp byte cs:doublec,0
         jnz endint1_x                   ;NOG NIET TIJD VOOR EEN IRPT
-win_comp_entry:                         ;entry point in windows comp. mode
-        PUSH BX                         ; (see below)
+        PUSH BX                         ; (see below) (called at 200Hz)
         PUSH CX
         PUSH DX
         PUSH BP
-        cmp byte cs:rommod,3
-        jb timer_noenv
+        MOV BP,SP
+        CMP W[BP+12],SEG EMULATE        ;KWAM INTRPT VAN SPEC.EMUL?
+        IF NZ JMP ENDINT
+win_comp_entry:                         ;entry point in T state counting mode
+        inc word cs:_count200hz
+        cmp byte cs:rommod,4            ; (see below) (called at 200Hz)
+        jb timer_noenv                  ;If not 128 mode, don't bother about Adlib
         cmp byte cs:adlib,0ff
         je timer_env
         cmp byte cs:intsnd,0ff
@@ -974,27 +991,27 @@ timer_env:
         jz timer_noenv
         call update_channels            ;ZIE MDRV.8
 timer_noenv:
-        MOV BP,SP
-        CMP W[BP+12],SEG EMULATE        ;KWAM INTRPT VAN SPEC.EMUL?
-        IF NZ JMP ENDINT
-        inc byte cs:mdrv_counter
+        test byte cs:countt             ;counting T states?
+        if e mov cs:_tstates,224        ;If not, make sure _tstates is big
+        inc byte cs:mdrv_counter        ; (for PUSH cc hacks, see emul.8)
         cmp byte cs:mdrv_counter,5
         jnz no_mdrv_action
         mov byte cs:mdrv_counter,0
         call mdrv_writegap
 no_mdrv_action:
-        cmp cs:byte modflg,2            ;Toets ingedrukt in real mode?
-        if z jmp do_modchg
+        test cs:byte modflg,2           ;Toets ingedrukt in real mode?
+        if nz jmp do_modchg
         cmp cs:byte spctel,0
         jz tim_nospace
         dec cs:byte spctel
         if z or byte cs:[offset in_tab+7],1         ;Laat SPACE los
 tim_nospace:
-        TEST BYTE CS:TIMFLAG
-        IF Z JMP ENDINT                 ;SPRING ERUIT ALS GEEN INTERRUPTS ETC.
-                                        ;ZIJN TOEGESTAAN
-        cmp byte cs:winkey,0            ;Windows compatibility mode?
-        if z jmp tim_normal
+        cmp byte cs:readtypeahead,0ff
+        je tim_readtypeahead
+;        cmp byte cs:winkey,0            ;Windows compatibility mode?
+;        if z jmp tim_normal
+        jmp tim_normal                  ;Never use INT 10 to read keys (v3.04)
+tim_readtypeahead:
         mov ah,2                        ;get shift state
         int 016
         mov ah,al
@@ -1023,12 +1040,23 @@ tim_noshiftchange:
         jz tim_nokeys
         xor ah,ah
         int 016
+        test al                         ;extended key code?
+        jne tim_normalkey
+        cmp ah,078
+        if ae sub ah,078-02             ;Digits 1-9,0 etc to scancode
+        cmp ah,068
+        if ae sub ah,068-03b            ;Alt Fx to scancode Fx
+        cmp ah,05e
+        if ae sub ah,05e-03b            ;Ctrl Fx
+        cmp ah,054
+        if ae sub ah,054-03b            ;Shft Fx
+tim_normalkey:
         mov al,ah
         xchg ah,cs:wkbd_lastscan
-        mov byte cs:wkbd_count,3        ;auto repeat: hold down appr. 100 ms
+        mov byte cs:wkbd_count,5        ;auto repeat: hold down appr. 25 ms
         cmp al,ah
         jz tim_ok
-        mov byte cs:wkbd_count,5        ;first key depress: hold down 250 ms
+        mov byte cs:wkbd_count,30       ;first key depress: hold down 150 ms
         test ah
         jz tim_ok
         push ax
@@ -1050,72 +1078,85 @@ tim_nokeys:
         or al,080
         call emulate_kbd_interrupt      ;release key after approx 250 ms
 tim_normal:
-        TEST BYTE CS:C_ACTIVE
-        IF NZ JMP DO_C                  ;BIJ 'F2' OF 'DI/HALT'
-        CMP BYTE CS:NMI,0FF
-        IF Z JMP DO_NMI
-        CMP BYTE CS:NMI,080
-        IF Z JMP DO_RESET
-        MOV AL,CS:VIERTEL
-        INC AL
-        AND AL,3
-        MOV CS:VIERTEL,AL
-        TEST BYTE CS:DOUBLE
-        JZ DO_NORMAL_SPEED              ;GEWONE IRUPT SNELHEID: 50X PER SEC
-        MOV BYTE CS:RFSHFLG,0FF
-        cmp al,0
-        jz do_irupt                     ;timeframe 0: alleen interrupt
-        cmp al,2
-        if nz jmp endint                ;timeframe 2: irpt en video
-        cmp cs:byte modflg,0            ;als in real mode geen vid update
-        jnz do_irupt
-        CALL VIDEO_UPDATE
-        call joystick_update
-        CALL UPDATE_DTR
-        CALL UPDATE_BUFSTATUS
-        JMP DO_IRUPT
-DO_NORMAL_SPEED:
+        mov al,cs:viertel
+        inc al
+        and al,3
+        mov cs:viertel,al
+        inc al                          ;because irupt should be at 2->3
+        and al,3
+        test byte cs:double
+        jne tim_doublespeed             ;jump on double irpt speed
         MOV AH,0FF
         CMP AL,3
         IF Z INC AH
         TEST AL
         IF Z INC AH
         MOV CS:RFSHFLG,AH               ;in 0ff geeft 0ff in frame 0 en 3
-        JZ DO_IRUPT                     ;FRAME 0:IRUPT GENEREREN
-        cmp al,CS:SYNCMOD
-        IF NZ JMP ENDINT                ;FRAME 2:VIDEO UPDATEN (1,3:NIKS DOEN)
+        jz set_irupt                    ;if interrupt then no screen update needed
+        cmp al,cs:syncmod               ;update screen?
+        jne jmphandleirupt
+        cmp cs:byte modflg,080
+        je upd_vid_partial
         cmp cs:byte modflg,0
-        if nz jmp endint
-        CALL VIDEO_UPDATE
+        jnz handle_irupt
+upd_vid_partial:
+        call flashcount
+        test byte cs:coloremu,0ff       ;hi color res emulation?
+        if e CALL VIDEO_UPDATE          ;only call vid_upd if not
+        call get_zxprintstatus
         call joystick_update
         CALL UPDATE_DTR
         CALL UPDATE_BUFSTATUS
-        JMP ENDINT
+        jmp short handle_irupt          ;jump forward to handle reset/nmi/c
+set_irupt:
+        test byte cs:nmi                ;0ff = nmi, 080 = reset, 0 = nothing
+        jnz handle_irupt
+        test byte cs:iff,0ff
+        if nz mov byte cs:nmi,0fe       ;signal: interrupt
+jmphandleirupt:
+        jmp short handle_irupt
+tim_doublespeed:
+        MOV BYTE CS:RFSHFLG,0FF
+        cmp al,0
+        jz set_irupt                    ;timeframe 0: alleen interrupt
+        cmp al,2
+        jnz handle_irupt                ;timeframe 2: irpt en video
+        cmp cs:byte modflg,0            ;low bits: 1 or 2, no vid update
+        jz nrm_vid_upd                  ; unless bit 7=1
+        test cs:byte modflg,080
+        je set_irupt
+nrm_vid_upd:
+        call flashcount
+        test byte cs:coloremu,0ff       ;hi color res emulation?
+        if e CALL VIDEO_UPDATE          ;only call vid_upd if not
+        call get_zxprintstatus
+        call joystick_update
+        CALL UPDATE_DTR
+        CALL UPDATE_BUFSTATUS
+        jmp set_irupt
+
 do_modchg:
-        mov byte cs:c_active,0ff
         mov byte cs:c_action_code,0f4
-        jmp do_c
-DO_IRUPT:
-        TEST BYTE CS:IFF,0FF
-        IF Z JMP ENDINT                 ;NU KLAAR ALS INTERRUPTS DISABLED
+        mov byte cs:c_active,0ff
+handle_irupt:
+        test byte cs:c_active
+        jne find_end_instr
+        cmp byte cs:nmi,0               ;no nmi/inter/reset ?
+        jne find_end_instr
+        jmp endint
 
-;nu een interrupt genereren. Ook flag zetten voor HALT instructie
-
-DO_RESET:
-DO_NMI:
-        IF Z DEC BYTE CS:NMI             ;ALS NMI, DAN 0FF WORDT 0FE (OF 07F)
-DO_C:
-;
-;GA DOOR TOT DE INSTRUCTIE AFGELOPEN IS:
-;
-        cmp byte cs:winkey,0
-        je single_step
+find_end_ctt:
+        test byte cs:nmi,0ff            ;nmi/inter/reset
+        if z jmp end_of_z80_instr       ;if not, do not step over HALT
         cmp b[di],118                   ;step over possible HALT instruction
-        if e inc di
-        jmp tim_winkey
-single_step:
-        PUSH ES
-        XOR AX,AX
+        if z inc di
+        jmp end_of_z80_instr
+
+find_end_instr:
+        test byte cs:countt,0ff         ;Counting T states?
+        jnz find_end_ctt
+        PUSH ES                         ;Now single step until end of
+        XOR AX,AX                       ; z80 instruction is found
         MOV ES,AX
         LES bx,ES:[4]
         MOV CS:oldint3a,bx
@@ -1130,7 +1171,8 @@ single_step:
         POP BX
         POP AX
         CALL SAVE_REGS
-        MOV BYTE CS:WORKSP,0
+        MOV BYTE CS:WORKSP,0    ;Signal: we didn't leave emulator segment
+        mov byte cs:intimer,0ff ;Signal: we're single stepping now
 DO_INSTRUCTION:
         STI
         PUSH BP
@@ -1150,8 +1192,8 @@ check_instr:
         jz do_pushf
         cmp al,09d              ;popf
         jz do_popf
-        TEST BYTE CS:TIMFLAG
-        JZ LEAVEIT
+        cmp al,090
+        jz do_nothing           ;but do it very quickly
         MOV ax,ES
         CMP ax,SEG EMULATE
         JNZ LEAVEIT
@@ -1184,17 +1226,28 @@ DO_POPF:
         MOV BP,SP
         OR W[BP+12],0100       ;ZET TF AAN VAN TE POPPEN FLAGS
         JMP next_instr
-found_halt:                     ;If the break is just after a HALT _and_
-        test byte cs:c_active   ;we're going to C, then make sure an interrupt
-        if nz dec di            ;is issued when C is finished.
+found_halt:                     ;If the break is just after a HALT *and*
+        test byte cs:c_active   ;we're going to C *and* no NMI or interrupt
+        jz found_end_2          ;occurs now, then go on HALTing
+        test byte cs:nmi
+        jnz found_end_2
+        dec di
         jmp short found_end_2
 LEAVEIT:
         MOV BYTE CS:WORKSP,0FF  ;signal: don't activate interrupt/c
         JMP SHORT FOUND_END_2
+do_nothing:
+        inc bp
+        cmp es:w[bp],03d8a
+        jne do_nothing
+        mov bx,sp
+        mov ss:[bx+6],bp        ;store new value of IP
+        xor bx,bx               ;reset BX, which may've been used as a counter
 FOUND_END:
         CMP ES:[BP+2],0E3FF     ;JMP BX
         JNZ next_instr
 FOUND_END_2:
+        mov byte cs:intimer,0   ;Signal: not single stepping anymore
         pop ax
         POP ES
         POP BP
@@ -1212,49 +1265,158 @@ FOUND_END_2:
         MOV ES:[6],AX
         POP ES
         MOV BP,SP
+        AND W[BP+14],0FEFF              ;ZET TF UIT
+        OR W[BP+14],0200                ;ZET IF AAN
         TEST BYTE CS:WORKSP             ;Do not activate c or generate irpt
-        JNZ C_ACT                       ; if worksp<>0
-tim_winkey:
-        MOV BP,SP                       ;sic!
-        mov word cs:trapadr,offset emulate
-        mov word cs:trapseg,seg emulate
+        if NZ jmp endint                      ; if worksp<>0
+;
+;Now handle the interrupt, NMI or reset
+;
+end_of_z80_instr:
+        cmp byte cs:nmi,080             ;reset?
+        jne no_reset
+        mov al,byte cs:if1flg           ;IF1 or Disciple or Multiface rom paged?
+        or al,cs:byte discflg
+        or al,cs:byte m128flg
+        if nz call far pagin_n_rom_far
+        CALL RESET_ALL
+        MOV word cs:IFF,0               ;disable interrupt
+        mov di,0                        ;jump to 0
+no_reset:
+        cmp byte cs:nmi,0ff             ;nmi?
+        jne no_nmi
+        cmp byte cs:rommod,2            ;reset samram
+        if z CALL RESET_ALL
+        call switchon_m128
+        mov cs:byte iff,0
+        jmp short call_interr
+no_nmi:
+        cmp byte cs:nmi,0fe             ;interrupt?
+        jne no_interrupt_0
+        test byte cs:[offset iff],0ff
+        jne probably_interrupt
+no_interrupt_0:
+        jmp no_interrupt
+probably_interrupt:
+        MOV cs:W[OFFSET IFF],0
+        cmp byte cs:IMODE,1
+        ja mode2
+        if e dec cs:w[_tstates]
+        sub cs:w[_tstates],12   ;IM0 takes 12 T states, IM1 takes 13
+        jmp short call_interr
+mode2:
+        sub cs:w[_tstates],19   ;IM2 takes 19 T states
+call_interr:
+        inc byte es:rr          ;Interrupt or NMI takes 1 R update! (v3.04)
+        pop bp
+        dec bp
+        mov ax,di
+        call testbp2
+        if c mov ds:[bp],ah
+        dec bp
+        call testbp2
+        if c mov ds:[bp],al
+        push bp
+        mov di,066
+        cmp byte cs:nmi,0ff
+        je no_interrupt_0
+        mov di,038
+        cmp byte cs:imode,2
+        jne no_interrupt_0
+        mov bh,cs:ri
+        cmp byte cs:amsmouse,0ff
+        jne interr_noams
+        mov bl,cs:rommod
+        and bl,0fe
+        je interr_ams
+        cmp bl,2
+        jne interr_noams        ;only ams mouse emulation in mode 0,1,4,5
+interr_ams:
+        cmp byte cs:amsienablea,0
+        je interr_noamsa
+        cmp byte cs:amsmodea,1
+        jne interr_noamsa
+        cmp byte cs:amscnta,0
+        je interr_noamsa
+        dec byte cs:amscnta
+        mov bl,cs:amsiveca
+        mov byte cs:ams38irupt,0ff
+        jmp mode2_interrupt
+interr_noamsa:
+        cmp byte cs:amsienableb,0
+        je interr_noams
+        cmp byte cs:amsmodeb,1
+        jne interr_noams
+        cmp byte cs:amscntb,0
+        je interr_noams
+        dec byte cs:amscntb
+        mov bl,cs:amsivecb
+        mov byte cs:ams38irupt,0ff
+        jmp mode2_interrupt
+interr_noams:
+        mov bl,0ff
+mode2_interrupt:
+        mov al,[bx]
+        mov ah,[bx+1]
+        mov di,ax
+no_interrupt:
+        mov byte cs:nmi,0
+        mov word cs:trapadr,offset emulate_0    ;Do not update R twice!
+        mov word cs:trapseg,seg emulate_0
+        test byte cs:countt
+        je ordinary_timinter
+        test byte cs:c_active
+        mov byte cs:c_active,0
+        pop bp
+        pop dx
+        pop cx
+        pop bx
+        pop ax
+        if nz jmp far enter_c
+        jmp far emulate_0               ;continue emulating
+
+ordinary_timinter:
+        mov bp,sp
         TEST BYTE CS:C_ACTIVE
         JZ NOT_C_ACT
         MOV W[BP+10],OFFSET ENTER_C
         MOV W[BP+12],SEG ENTER_C
         JMP SHORT C_ACT
 NOT_C_ACT:
-        MOV W[BP+10],OFFSET IRUPT       ;ZET ADRES VAN INTERRUPT-ROUTINE OP STACK
-        MOV W[BP+12],SEG IRUPT
+        MOV W[BP+10],OFFSET emulate_0
+        MOV W[BP+12],SEG emulate_0
 C_ACT:
-        AND W[BP+14],0FEFF              ;ZET TF UIT
-        OR W[BP+14],0200                ;ZET IF AAN
         MOV BYTE CS:C_ACTIVE,0          ;ACTION CODE VOOR 'C' IN C_ACTION_CODE
 ENDINT:
         POP BP
         POP DX
         POP CX
         POP BX
+        test byte cs:countt,0ff         ;Called from the T state counter?
+        jne endint_countt               ;If so, jump to the emulator
 endint1:
-        cmp byte cs:modflg,0
-        je endint_normal
-        pop ax
-        iret
-endint_normal:
+;        cmp byte cs:modflg,0            ;<>0 = real mode
+;        je endint_normal
+;        pop ax
+;        iret
+;endint_normal:
         MOV AX,CS:TIMNUM
         STC
         ADC AX,CS:ADDNUM
         MOV CS:TIMNUM,AX
         POP AX
-        jc normal_timinter
-        IRET
-normal_timinter:
+        jnc iret_label
         cmp byte cs:wkbd_count,0        ;decrease windows compatibility kbd
         if ne dec byte cs:wkbd_count    ; counter (see above)
-        cmp byte cs:winkey,0            ;Windows comp. mode?
-        if e JMP CS:D[TIMADR]           ;If not jump to old timer routine
-        iret                            ;Otherwise just return to caller!
+        jmp cs:d[timadr]
+iret_label:
+        IRET
 
+endint_countt:
+        pop ax
+        cmp byte cs:wkbd_count,0        ;decrease windows compatibility kbd
+        if ne dec byte cs:wkbd_count    ; counter (see above)
+        jmp far emulate_0               ;Continue emulating
 
 
 
@@ -1268,6 +1430,7 @@ normal_timinter:
 ;werkelijkheid te maken.
 ;
 speed_convert:
+        mov ax,cs:_curspd
         mov bx,offset slowmod
         mov cx,4
 spdc_loop:
@@ -1285,9 +1448,12 @@ spdc_loop:
         ret
 spdc_cx_tstates:
         push bx
-        cmp ax,70
-        if b mov ax,70
-        mov dx,cs:relspd0
+        cmp ax,60000
+        if b mov ax,60000
+        push ax
+        call getrelspd0
+        mov dx,ax
+        pop ax
         cmp dx,ax
         ja speed_slower
 speed_fastest:
@@ -1308,13 +1474,7 @@ speed_slower:
         cmp dx,bx
         if a inc ax
         mov bx,ax
-        mov ax,cs:relspd0
-        test byte cs:mflag,1
-        jz no_rreg
-        mov dx,50412            ;65536* (1/1.3), for R reg. emulation
-        mul dx
-        mov ax,dx
-no_rreg:
+        call getrelspd0         ;destroys dx
         mov cx,ax
         pop dx
         pop ax
@@ -1333,17 +1493,31 @@ no_rreg:
         inc ax
 spd_gotit:
         pop bx
-        test ax
-        jnz spd_notzero
-        mov ax,1
-        test byte cs:debugflg,0ff
-        jne spd_notzero
-        test byte cs:winkey
-        jne spd_notzero
-        xor ax,ax
-spd_notzero:
         mov cs:w[bx],ax
         ret
+
+
+
+getrelspd0:                     ;get speed without slowdown, but taking into
+        mov ax,cs:relspd0       ; account R register and hi color res. emulation
+        test byte cs:mflag,1
+        jz no_rreg
+        mov dx,50412            ;65536* (1/1.3), for R reg. emulation
+        mul dx
+        mov ax,dx
+no_rreg:
+;        test byte cs:coloremu,0ff
+        test byte cs:countt,0ff
+        jz ret
+        mov dx,43690            ;65536* (1/1.5) for coloremu on 386+
+        cmp cs:cputype,386
+        jae hs_386
+        mov dx,36921            ;65536* (1/1.775) for coloremu on 286-
+hs_386:
+        mul dx
+        mov ax,dx
+        ret
+
 
 
 hoesnel:
@@ -1360,13 +1534,7 @@ hoesnel:
 ;  The first jump takes about the time of 4 NOPs. k=0 corresponds to no
 ;slowdown, k=1 to JMP & no nops etc.
 ;
-        mov ax,cs:relspd0
-        test byte cs:mflag,1
-        jz no_rreg2
-        mov dx,50412            ;65536* (1/1.3), for R reg. emulation
-        mul dx
-        mov ax,dx
-no_rreg2:
+        call getrelspd0         ;and make correction for R register & color emu
         mov bx,ax
         mov ax,cs:w[offset slowmod+12]          ;10 T state instruction
         test ax
@@ -1424,11 +1592,12 @@ hoesnel_nodiv2:
         xor ax,ax
         mov dx,91
         div bx
-        mov cs:addnum,ax
-        pop ax
+        cmp ax,512
+        if b mov ax,512         ;To make sure timer is never programmed with
+        mov cs:addnum,ax        ; a too small time interval. 512 =/= 2330 Hz
+        pop ax                  ; =/= 1165 %, maximum is 1000% anyway.
         ret
 
 
 
 startup ends
-

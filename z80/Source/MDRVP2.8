@@ -3,42 +3,213 @@
 ;
 ;These routines emulate INs
 ;
-not_keyboard_far:
-        cmp bl,0fd
-        jz in_128
-        test bl,255-31
-        jz in_kempston
-not_kempston_after_all:
-        NOT BL
-        AND BL,000011000XB
-        AND BL,ES:B[IF1_ON]
-        jnz IF1_IN_POORT
+in_ula: mov ah,0ff
         TEST BYTE ES:RFSHFLG
-        jz in_finished           ;GEEF 0FF ALS IN REFRESH
+        jz in_finished          ;GEEF 0FF ALS IN REFRESH
         MOV AH,ES:INTEL
         INC AH
-        AND AH,3
+        cmp ah,2
+        if e xor ah,ah
         MOV ES:INTEL,AH
         MOV AH,0FF
         jnz in_finished
-        ADD ES:ATRSCR,27896
-        if c jmp IN_SCRN
+        ADD ES:ATRSCR,24135
+        jnc IN_attr
+        MOV BX,ES:INTEL2
+        ADD BX,7+3*256
+        CMP BX,22528
+        IF AE SUB BX,6144
+        MOV AH,[BX]
+        MOV ES:INTEL2,BX
+        MOV BH,AH
+        RETf
+in_attr:
         MOV BX,ES:INTEL3
-        ADD BX,29
-        CMP BX,23296
-        IF AE SUB BX,768
+        ADD BX,4
+        CMP BH,91
+        IF AE SUB BH,3
         MOV AH,[BX]
         MOV ES:INTEL3,BX
 in_finished:
         MOV BH,AH
         RETf
 
+
+;
+;These routines emulate INs
+;
+not_keyboard_far:
+        cmp bl,0fd
+        if z jmp in_128         ; ***** HMc MOD *****
+        cmp byte ptr es:_disctype,16 ; +D hardware? ***** HMc *****
+        jnc check4plusdin       ; ***** HMc *****
+        cmp bl,0fb              ; IN 251 ***** HMc *****
+        if z jmp zxprintin      ; jump if it is ***** HMc *****
+        cmp bl,0bb              ; DISCiPLE page-in command?  ***** HMc *****
+        jne check4disciple      ; jump if it is not ***** HMc *****
+        cmp byte ptr es:_discinhibit,0   ; inhibit button in? GL mod
+        je pagediscin0         ; jump if not.  GL mod
+        cmp byte ptr es:_discinhibitflg,0     ; ROM paging disabled? ***** HMc *****
+        jne  not_keyboard_far2   ; jump if it is ***** HMc *****
+
+pagediscin0:
+        jmp pagediscin          ; jump if it was  ***** HMc *****
+
+check4disciple:
+        push bx                 ; ***** HMc *****
+        and bl,00011111b        ; ***** HMc *****
+        cmp bl,00011011b        ; DISCiPLE out?  ***** HMc *****
+        pop bx                  ; ***** HMc *****
+        jne not_keyboard_far2   ; jump if not ***** HMc *****
+        jmp far DISCiPLEIn      ; DISCiPLE in command  ***** HMc *****
+
+check4plusdin:                  ; ***** HMc *****
+        cmp bl,0e7h             ; page plus d in ***** HMc *****
+        jne check4plusdin2      ; jump if not ***** HMc *****
+        jmp pagediscin          ; jump if it is ***** HMc *****
+
+check4plusdin2:                 ;On +D, no ZX printer is emulated, so let +D handle IN 251's (GL)
+;        cmp bl,0fb              ; IN 251 ***** HMc *****
+;        jne check4plusdin3      ; jump if it is not ***** HMc *****
+;        cmp di,0f2c             ; IN 251 could be for ZX PRINTER, or ***** HMc *****
+;        jnc check4plusdin3      ; IN data of PLUS D!  Therefore these checks ***** HMc *****
+;        cmp byte ptr es:discflg,0ff ; are to see which is which! ***** HMc *****
+;        je check4plusdin3       ; ***** HMc *****
+;        jmp zxprintin           ; jump if it is ***** HMc *****
+;
+;check4plusdin3:                 ;  ***** HMc *****
+        cmp bl,0f7              ; PRINTER IN ***** HMc *****
+        jne check4plusdin4      ; jump if it is not ***** HMc *****
+        jmp far PLUSDIn247      ; jump if it is ***** HMc *****
+
+check4plusdin4:                 ; ***** HMc *****
+        push bx                 ; ***** HMc *****
+        and bl,11100111b        ; keep bits ***** HMc *****
+        cmp bl,11100011b        ; +D ins? ***** HMc *****
+        pop bx                  ; ***** HMc *****
+        jne not_keyboard_far2   ; ***** HMc *****
+        jmp far PLUSDIn         ; PLUS D in command ***** HMc *****
+
+not_keyboard_far2:              ; ***** HMc *****
+        test bl,255-31
+        if z jmp in_kempston    ;and MGT printer busy, and PIO data A
+not_kempston_after_all:
+        mov ah,bl
+        NOT BL
+        AND BL,000011000XB
+        AND BL,ES:B[IF1_ON]
+        if nz jmp IF1_IN_POORT
+        test ah,2               ;xxFD, only A15/14/1 decoded, are '128 ports
+        if z jmp in_128
+        cmp ah,0df              ;AMS mouse button
+        je ams_mousebutton
+        cmp ah,0bf              ;switch on multiface
+        je switchon_m128_f
+        cmp ah,03f              ;switch off multiface (or PIO data B)
+        je switchoff_m128_f
+        test ah,1               ;Bit 0=0, signalling keyboard?
+        if nz jmp in_ula        ;No, then in from the screen data
+        add sp,4                ;dump far return address
+        jmp far in0_keyboard    ;continue in the normal keyboard in routine
+
+switchon_m128_f:
+        call switchon_m128
+        mov ah,07f
+        test byte es:hstate,8                ;screen bit
+        if ne or ah,080
+        mov bh,ah
+        retf
+
+switchoff_m128_f:
+        call switchoff_m128
+        cmp byte cs:amsmouse,0ff
+        jne smf_noams
+        mov ah,cs:rommod
+        and ah,2
+        je smf_amsmouse
+        cmp ah,2
+        jne smf_noams
+smf_amsmouse:
+        mov ah,cs:amsdatab
+        mov bh,ah
+        retf
+smf_noams:
+        mov ah,0ff
+        mov bh,ah
+        retf
+
+ams_mousebutton:
+        mov ah,0ff
+        cmp byte cs:amsmouse,0ff
+        if e mov ah,cs:amsdfvalue
+        mov bh,ah
+        retf
+
+pagediscin:                             ; ***** HMc *****
+        push ax                         ; ***** HMc *****
+        cmp byte es:rommod,3            ; M.G.T.+48K?  ***** HMc *****
+        if z mov byte es:discflg,0ff    ; set paged-in flag ***** HMc *****
+        cmp byte es:rommod,6            ; M.G.T.+128K?  ***** HMc *****
+        if z mov byte es:discflg,0ff    ; set paged-in flag ***** HMc *****
+        cmp byte es:discflg,0ff         ; M.G.T. paged-in? ***** HMc *****
+        jne pagediscin1                 ; jump if not  ***** HMc *****
+        mov ax,1                        ; M.G.T. ROM  ***** HMc *****
+        call swap_mem                   ; page ROM  ***** HMc *****
+        mov ax,0ff00                    ;Low 8k=ram (0), Hi 8k=rom (0ff)
+        cmp byte es:_disctype,8         ;0=disc,8=unidos,16=plus d
+        if nc xchg al,ah                ;Not so with unidos (?) or plus d
+        mov es:rompage1,ax
+pagediscin1:                            ; ***** HMc *****
+        pop ax                          ; ***** HMc *****
+        retf                            ; return  ***** HMc *****
+
+
 in_kempston:
         test bl,24
-        jz not_kempston_after_all
+        if z jmp not_kempston_after_all
+        cmp byte es:[disc_on],0ff       ; M.G.T. connected?  ***** HMc *****
+        jne in_kempston1                ; jump if not  ***** HMc *****
+
+        mov ah,byte cs:[offset dtr]     ;Get 'busy' flag of RS232 channel
+        and ah,64
+        and byte ptr es:b[discprnstatus],128 ; keep net status ***** HMc *****
+        or byte ptr es:b[discprnstatus],ah ; save busy status ***** HMc *****
+
+;        push ax                         ; ***** HMc *****
+;        push dx                         ; ***** HMc *****
+;        mov ah,2                        ; get printer status ***** HMc *****
+;        mov dx,cs:zxprint               ; GL
+;        int 017                         ; PRINTER SERVICES ***** HMc *****
+;        and ah,128                      ; keep not busy flag ***** HMc *****
+;;        xor ah,128                      ; change to busy flag ***** HMc *****
+;        shr ah,1                        ; move to bit 6 ***** HMc *****
+;        and byte ptr es:b[discprnstatus],128 ; keep net status ***** HMc *****
+;        or byte ptr es:b[discprnstatus],ah ; save busy status ***** HMc *****
+;        pop dx                          ; ***** HMc *****
+;        pop ax                          ; ***** HMc *****
+
+        mov ah,es:b[kempston_state]     ; get kempston joystick status  ***** HMc *****
+        or  ah,es:b[discprnstatus]      ; get disciple PRINTER & Net Status  ***** HMc *****
+        mov bh,ah                       ; ***** HMc *****
+        retf                            ; ***** HMc *****
+in_kempston1:
+        cmp byte cs:amsmouse,0ff
+        jne in_kempston2
+        mov ah,cs:rommod
+        and ah,2
+        je in_kemp_amsmouse
+        cmp ah,2
+        jne in_kempston2
+in_kemp_amsmouse:
+        mov ah,cs:amsdataa
+        mov bh,ah
+        retf
+in_kempston2:
         MOV AH,ES:B[KEMPSTON_STATE]     ;HAAL STATUS KEMPSTON JOYSTICK OP.
         MOV BH,AH
         RETf
+
+
 
 IF1_IN_POORT:
         mov ah,al
@@ -55,39 +226,33 @@ IF1_IN_POORT:
         RETf
 
 
+zxprintin:                      ;Modified for v3.04
+        mov ah,cs:zxprstatus    ;8=IO error -> zx printer not attached
+        xor ah,010+080          ;010=!off line, 080=!busy, 020=out of paper
+        mov bh,081              ;means: stylus is here, encoder says go ahead
+        test ah,1+010+020+080
+        je zxprintin_nobusy
+        mov bh,1                ;means: wait for stylus (but encoder says OK)
+        cmp cs:zxprbusy,0ff     ;if -xj not given, then return 'no zx prtr'
+        if ne mov bh,0ff
+zxprintin_nobusy:
+        test ah,8
+        if ne mov bh,0ff        ;means: zx printer not attached (bit 6=1)
+        mov ah,bh
+        retf
+
 
 in_128: cmp bh,0ff
         mov bh,0ff
         jnz in_128_retf
         mov bl,cs:lastfffd
-        cmp bl,15
-        ja in_128_retf
+        and bl,15
         cmp bl,14
         jne in_128_normal
-;        CMP word CS:RS_IN,2             ;from here on the code is copied
-;        JAE READ_BIT128                 ;almost literally from in_if1 above
-;        MOV word CS:RS_IN,0
-;        CMP BYTE CS:CTS128,0    ;CLEAR TO SEND?
-;        JZ READ_BIT128          ;NEE, GEEF NUL TERUG
-;        CALL RS_READ_READY      ;STAAT DATA KLAAR?
-;        JC READ_BIT128          ;C=NEE
-;        PUSH AX
-;        CALL READ_SAVEREG
-;        MOV AH,0f0              ;three START BITS EN 1 MARKER BIT
-;        NOT AL
-;        ROL AX,1
-;        ROL AX,1
-;        ROL AX,1
-;        MOV CS:RS_IN,AX
-;        POP AX
 READ_BIT128:
         and bh,03f
         cmp byte cs:dtr,0ff
         if nz or bh,64
-;        shl bh,1
-;        RCR WORD CS:RS_IN,1
-;        cmc
-;        RCR bH,1                ;bit 7=data (not inverted), bit 6=dtr
         retf
 in_128_normal:
         mov bh,0
@@ -95,15 +260,34 @@ in_128_normal:
 in_128_retf:
         retf
 
-IN_SCRN:
-        MOV BX,ES:INTEL2
-        ADD BX,31+7*256
-        CMP BX,22528
-        IF AE SUB BX,6144
-        MOV AH,[BX]
-        MOV ES:INTEL2,BX
-        MOV BH,AH
-        RETf
+switchon_m128:
+        cmp byte cs:_m128_on,0
+        je ret
+        cmp byte cs:rommod,2        ;samram?
+        je ret
+        mov byte cs:m128flg,0ff
+        mov word cs:rompage1,0ff    ;lower 8k rom; hi 8k ram
+        mov ax,11
+        call swap_mem
+        ret
+
+switchoff_m128:                     ;DESTROYS BX!! (via pagin_n_rom_far)
+        xor al,al
+        xchg byte cs:m128flg,al
+        test al
+        je ret
+        mov al,cs:if1flg
+        or al,cs:discflg
+        jne switchoff_if1disc
+        call far pagin_n_rom_far
+        ret
+switchoff_if1disc:
+        mov word cs:rompage1,-1     ;all rom
+        mov ax,1
+        call swap_mem
+        ret
+
+
 
 
 
@@ -112,14 +296,103 @@ IN_SCRN:
 ;
 ;Now the routines that emulate OUTs follow:
 ;
+
 no_speaker_far:
         cmp bl,0fd
         if z jmp out_128
+        cmp byte ptr es:disc_on,0ff     ; DISCipLE/+D connected? ***** HMc *****
+        jne no_speaker_far2             ; jump over MGT stuff if not
+        cmp byte ptr es:_disctype,16    ; PLUS D hardware? ***** HMc *****
+        jnc check4plusdout              ; jump if it is ***** HMc *****
+        cmp bl,0bb                      ; page disciple out? ***** HMc *****
+        if z jmp pagediscout            ; jump to check ***** HMc *****
+        cmp bl,0fb                      ; ***** HMc 8/94 *****
+        if z jmp zxprinter_out          ; ***** HMc 8/94 *****; GL mod 21/10/94
+        push bx                         ; ***** HMc *****
+        and bl,00011111b                ; DISCiPLE command?
+        cmp bl,00011011b                ; ***** HMc *****
+        pop bx                          ; ***** HMc *****
+        jne no_speaker_far2             ; if not handle other things
+        jmp far DISCiPLEOut             ; DISCiPLE out  ***** HMc *****
+        
+check4plusdout:                         ; ***** HMc *****
+        cmp bl,0e7                      ; page +D out? ***** HMc *****
+        if z jmp pagediscout            ; jump if it is ***** HMc *****
+        cmp bl,0ef                      ; select drive&side? ***** HMc *****
+        if z jmp far PLUSDOut239        ; jump if it is ***** HMc *****
+        cmp bl,0f7                      ; printer out? ***** HMc *****
+        if z jmp discprinterout         ; ***** HMc *****
+        push bx                         ; ***** HMc *****
+        and bl,11100111b                ; keep bits ***** HMc *****
+        cmp bl,11100011b                ; +D out? ***** HMc *****
+        pop bx                          ; ***** HMc *****
+        jne no_speaker_far2             ; jump if not ***** HMc *****
+        jmp far PLUSDOut                ; +D out ***** HMc *****
+
+no_speaker_far2:                        ; ***** HMc *****
         TEST BL,011100000XB
-        jnz NO_31
-        TEST ES:B[IN31TAB+2],0FF        ;is er een out 31,5 geweest?
-        jnz NO_31
+        jne no_31
         cmp byte es:rommod,2
+        je samram_out_31                ; ***** HMc MOD *****
+        cmp byte es:disc_on,0ff         ;disciple connected?
+        jne no_31
+        jmp far DISCiPLEOut31           ; ***** HMc *****
+NO_31:
+        cmp bl,0fb
+        jz zxprinter_out
+        test bl,2                       ;0xxFD, only A15, A14 and A1 decoded,
+        if z jmp out_128                ; is the '128 port (Two Weeks in Paradise 128)
+        NOT BL
+        TEST BL,011000XB
+        jz check_ams
+        push ax
+        in al,021
+        push ax
+        and al,0fe
+        out 021,al
+        CALL OUT_IF1
+        pop ax
+        out 021,al
+        pop ax
+        retf
+
+check_ams:
+        cmp bl,0a0                      ;= NOT 5f = PIO ctrl A
+        je ams_ctrla
+        cmp bl,080                      ;= NOT 7f = PIO ctrl B
+        je ams_ctrlb
+        retf
+ams_ctrla:
+        xor bx,bx
+        jmp ams_ctrl
+ams_ctrlb:
+        mov bx,1
+ams_ctrl:
+        test ah,1                       ;set interrupt vector
+        je ams_c_ivec
+        test ah,8                       ;set interrupt enable flag
+        je ams_c_ief                    ;otherwise 1111=set mode
+        rol ah,1
+        rol ah,1
+        and ah,3
+        mov cs:[amsmodea+bx],ah
+        retf
+ams_c_ief:
+        and ah,080
+        rcl ah,1
+        sbb ah,ah
+        mov cs:[amsienablea+bx],ah
+        retf
+ams_c_ivec:
+        mov cs:[amsiveca+bx],ah
+        retf
+
+
+zxprinter_out:
+        jmp far zxprintout
+
+samram_out_31:                          ; ***** HMc *****
+        TEST ES:B[IN31TAB+2],0FF        ;is er een out 31,5 geweest?
         jnz end_out
         MOV BL,AH
         AND BX,01111XB
@@ -176,34 +449,6 @@ enable_shadow_2:
         pop ax
         retf
 
-NO_31:
-        NOT BL
-        TEST BL,011000XB
-        if z jmp end_out
-        push ax
-        in al,021
-        push ax
-        and al,0fe
-        out 021,al
-        CALL OUT_IF1
-        pop ax
-        out 021,al
-        pop ax
-        retf
-
-
-PAGEIN_IF1_ROM:
-        TEST BYTE ES:IF1_ON
-        JZ pir_retf
-        mov byte es:if1flg,0ff
-        push ax
-        mov ax,1
-        call swap_mem
-        pop ax
-pir_retf:
-        RETf
-
-
 SWITCH_RAM:
         test ah,ah              ;which bank?
         mov ax,0204
@@ -217,19 +462,85 @@ SWITCH_RAM:
         retf
 
 
+PAGEIN_IF1_ROM:
+        push ax
+        TEST BYTE ES:IF1_ON
+        JnZ pagein_if1          ; ***** HMc *****
+        cmp byte es:disc_on,0ff ; is DISCiPLE present?  ***** HMc *****
+        jnz pir_retf            ; jump if not present  ***** HMc *****
+        mov byte es:discflg,0ff ; ***** HMc *****
+        test byte es:m128flg,0ff
+        jne pir_retf
+        mov ax,0ff00            ;Low 8k=ram (0), Hi 8k=rom (0ff)
+        cmp byte es:_disctype,8 ;0=disc,8=unidos,16=plus d
+        if nc xchg al,ah        ;Not so with unidos (?) or plus d
+        mov es:rompage1,ax
+        jmp pagein_if1c         ; ***** HMc *****
+
+Pagein_if1:
+        mov byte es:if1flg,0ff
+        test byte es:m128flg,0ff
+        jne pir_retf
+        mov word es:rompage1,-1 ;all ROM
+
+Pagein_if1C:                    ; ***** HMc *****
+        mov ax,1
+        call swap_mem
+pir_retf:
+        pop ax
+        RETf
+
+
+pagediscout:                            ; ***** HMc *****
+        cmp es:rommod,3                 ; 48K+DISCiPLE?  ***** HMc *****
+        je pagediscout1                 ; jump if it is  ***** HMc *****
+        cmp es:rommod,6                 ; 128K+DISCiPLE?  ***** HMc *****
+        if ne jmp END_OUT               ; jump if it is not  ***** HMc *****
+
+pagediscout1:                           ; ***** HMc *****
+        push ax                         ; DESTROYS BX!
+        call far pagin_n_rom_far        ; ***** HMc *****
+        pop ax
+        jmp END_OUT                     ; ***** HMc *****
+
+
+discprinterout:                         ; ***** HMc *****
+;        cmp byte ptr es:disc_on,0ff     ; ***** HMc 8/94 *****
+;        if ne jmp far zxprintout        ; ***** HMc 8/94 *****
+;        cmp byte ptr es:discflg,0ff     ; ***** HMc 8/94 *****
+;        if ne jmp far zxprintout        ; ***** HMc 8/94 *****
+
+        mov al,ah
+        call write_savereg
+
+;        push ax                         ; ***** HMc *****
+;        push dx                         ; ***** HMc *****
+;        mov al,ah                       ; byte to output ***** HMc *****
+;        mov dx,cs:zxprint               ; GL
+;        mov ah,0                        ; send byte ***** HMc *****
+;        int 017                         ; PRINTER SERVICES ***** HMc *****
+;        pop dx                          ; ***** HMc *****
+;        pop ax                          ; ***** HMc *****
+        retf
+
+
+
+
+
 out_128:
-        cmp byte cs:rommod,3
+        cmp byte cs:rommod,4    ; ***** HMc MOD *****
         jb not_in_128mode
+        or bh,03f
         cmp bh,0bf
         jz out_128_soundchip
-        cmp bh,07f
-        if z jmp out_128_banksw
         cmp bh,0ff
         jz out_128_soundreg
+        jmp out_128_banksw      ; trigger on all A15=0 (and low=FD) addresses
 not_in_128mode:
         retf
 
 out_128_soundreg:
+        and ah,0f
         mov cs:lastfffd,ah
         MOV WORD CS:RS_OUT,0
 out_128_return:
@@ -237,9 +548,7 @@ out_128_return:
 
 out_128_soundchip:
         mov bl,cs:lastfffd
-        cmp bl,15
-        ja out_128_return
-        mov bh,0
+        and bx,0f                       ;was: cmp bl,f/ja out_128_rtrn/clear bh
         mov cs:b[offset sstate+bx],ah
         cmp bl,14
         if e jmp out_128_rs232
@@ -247,7 +556,7 @@ out_128_soundchip:
         jnz out_128_return
         cmp byte cs:intsnd,0ff
         if z jmp out_128_internal
-        test byte cs:adlib,0ff
+        cmp byte cs:adlib,0
         jz out_128_return
         cmp bl,6
         jb out_128_s_freq
@@ -292,7 +601,7 @@ out_128_n_ok:
 out_128_nn:
         retf
 
-;'128 sound chip: Frequency = 110830 / registervalue (from 1 to 4095) Hz
+;'128 sound chip: Frequency = 110830 / register value (from 1 to 4095) Hz
 ;Adlib sound chip: Frequency = 50000 * 2^-20 * reg.value (0-1023) * 2^octave (0-7)
 ;So Adlib reg = 2324273 / '128 reg (hex 237731)
 out_128_s_freq:
@@ -415,6 +724,7 @@ out_128_rs232:
         TEST WORD CS:RS_OUT,080
         JZ out_128_r
         MOV AL,CS:B[OFFSET RS_OUT+1]
+        not al
         CALL WRITE_SAVEREG
         MOV WORD CS:RS_OUT,0
 out_128_r:
@@ -423,8 +733,8 @@ out_128_r:
 
 
 upd_noise:                              ;destroys ax and bx
-        cmp byte cs:adlib,0ff
-        jnz ret
+        cmp byte cs:adlib,0
+        jz ret
         push cx
         xor ah,ah
         mov cl,cs:b[offset sstate+7]
@@ -582,7 +892,7 @@ out_128_ep_fast:
 
 
 out_128_banksw:                         ;is also called from _reset_page5
-        cmp byte cs:rommod,3
+        cmp byte cs:rommod,4            ;HMc
         jb some_retf                    ;return if emulator not in 128 mode
         push ax
         mov al,cs:hstate
@@ -600,9 +910,20 @@ out_128_banksw:                         ;is also called from _reset_page5
         call swap_mem
         pop ax
 out_128_nobanksw:
+        xor bx,bx
+        test ah,8
+        je out_128_screen               ;Jump if screen in bank 5
+        mov bx,08000
+        cmp byte cs:[ramstate+3],10
+        je out_128_screen               ;Jump if page 7 (screen) is in bank 3
+        mov bx,0ffff                    ;Signal: Screen hidden
+out_128_screen:
+        mov cs:vgahcrscroffset,bx
         test al,16
         jz out_128_popax
         test byte cs:if1flg,0ff         ;is if1 rom switched on?
+        jnz out_128_popax
+        test byte cs:m128flg,0ff        ;is multiface paged?
         jnz out_128_popax
         mov al,ah
         and ax,16
@@ -788,19 +1109,57 @@ ui_finished:
 
 allocate_memory:
         mov ah,048
-        mov bx,512
+        mov bx,750              ;12000 bytes, >8192
+        test word cs:_nohcrmem  ;Should HCR mem buffers be allocated?
+        if nz mov bx,512        ;take 8192 bytes if not
         int 021
+        if c jmp not_enough
+        mov cs:vgahcrborbuf,ax  ;12000 byte VGA hi color res border buffer
         sub ax,1024
         mov cs:vidbufseg,ax     ;vidbufseg:16384 points to 8192 byte buffer
         mov ah,048
-        mov bx,256
+        mov bx,256              ;4096 bytes to hold terminal screen at startup
         int 021
+        if c jmp not_enough
         mov cs:w[offset scrnbuffer],0
         mov cs:w[offset scrnbuffer+2],ax
         mov ah,048
         mov bx,1090             ;>32*21f
         int 021
+        if c jmp not_enough
         mov cs:mdrvseg,ax
+        test word cs:_nohcrmem
+        jne novgahcr
+        mov ah,048
+        mov bx,2048
+        int 021
+        if c jmp not_enough
+        mov cs:vgahcrbuf,ax     ;32k VGA hi color res. buffer
+        mov es,ax
+        xor di,di
+        cld
+        xor ax,ax
+        mov cx,16384
+        rep stosw               ;also important for op code mapping!
+novgahcr:
+        mov ah,048
+        mov bx,cs:outlogbuflen
+        shr bx,1
+        shr bx,1
+        shr bx,1
+        shr bx,1
+        int 021
+        if c jmp not_enough
+        mov cs:outlogbufseg,ax
+        mov ah,048
+        mov bx,cs:vocbuflen     ;48k or 8192 bytes
+        shr bx,1
+        shr bx,1
+        shr bx,1
+        shr bx,1
+        int 021
+        if c jmp not_enough
+        mov cs:vocbufseg,ax     ;48k voc file buffer
         cmp byte cs:expmem,0ff
         if nz jmp no_exp_mem2
         xor ax,ax
@@ -822,7 +1181,7 @@ allocate_memory:
         mov cs:specseg,bx
         mov cs:romseg,bx
         mov ah,043              ;allocate
-        mov bx,11               ;11 16K pages
+        mov bx,12               ;12 16K pages
         int 067
         test ah,ah
         jnz no_exp_mem
@@ -863,10 +1222,10 @@ no_exp_mem:
         mov dx,noemsmes
         int 021
 no_exp_mem2:
-        mov bx,03c00            ;64K Z80 mem, 48K roms, 128K ram banks (128)
+        mov bx,04000            ;64K Z80 mem, 48K roms, 128K ram banks (128), multiface rom
         mov ah,048
         int 021
-        if c jmp not_enough     ;in z80.8
+        if c jmp not_enough     ;in z80p2.8
         mov cs:specseg,ax
         add ax,01000
         mov cs:romseg,ax
@@ -907,7 +1266,7 @@ swap_mem:
         cmp cs:b[offset ramstate+bx],al
         if z jmp swap_mem_same
         cmp al,11
-        if ae jmp swap_mem_same
+        if a jmp swap_mem_same
         push dx
         mov dx,cs:emshandle
         test dx,dx
@@ -928,13 +1287,19 @@ swap_noems:
         push cx
         push es
         push ds
+
         mov ch,8192/256         ;16 K bytes
+        cmp cs:disc_on,0ff    ; ***** HMc *****
+        je no_ems1            ; ***** HMc *****
         cmp ax,1                ;swap in if1 rom?
         jnz not_if1swap
         mov ch,4096/256
         mov cl,cs:b[offset ramstate]    ;fetch previously active rom
         test byte cs:if1sw      ;0ff means: switch entire 16K of if1 rom
-        if nz mov cx,8192+255
+        je no_ems2              ; ***** HMc MOD *****
+no_ems1:                        ; ***** HMc *****
+        mov cx,8192+255         ; ***** HMc *****
+no_ems2:                        ; ***** HMc *****
         mov cs:actrom2,cl       ;0ff if entire 16K switched, otherwise other rom
         jmp not_rompage
 not_if1swap:
@@ -949,12 +1314,40 @@ not_rompage:
         ror ah,1
         mov di,ax
         and di,0c000
-        cmp ah,040              ;the ram banks must be swapped, not just
-        jb just_pagein          ; paged.
-        push ax
-        mov al,cs:b[ramstate+bx]       ;Get old pagenumber, save new
-        cmp al,2                ;Do not save changes in ROM (r.s.=0,1)
-        js just_pagein_popax    ;Also, ignore data in inactive pages (r.s.=ff)
+
+;        cmp cs:disc_on,0ff    ; ***** HMc *****
+;        je not_rompage1         ; ***** HMc *****
+;        cmp ah,040              ;the ram banks must be swapped, not just
+;        jb just_pagein          ; paged.
+;not_rompage1:                   ; ***** HMc *****
+;        push ax
+;        mov al,cs:b[ramstate+bx]       ;Get old pagenumber, save new
+;        cmp cs:disc_on,0ff    ; ***** HMc *****
+;        je not_rompage2         ; ***** HMc *****
+;        cmp al,2                ;Do not save changes in ROM (r.s.=0,1)
+;        js just_pagein_popax    ;Also, ignore data in inactive pages (r.s.=ff)
+;not_rompage2:                   ; ***** HMc *****
+
+        push ax                     ;save new page number
+        mov al,cs:b[ramstate+bx]    ;get old
+        cmp al,1                    ;Ignore data in bank 0 (always ROM) and
+        js just_pagein_popax         ; in inactive pages (0ff)
+        je sm_testbank1             ;Bank 1 is ram with disciple, otherwise rom
+        cmp al,3
+        je sm_testsamram            ;bank 3 is rom with samram, otherwise ram
+        jb just_pagein_popax         ;bank 2 is always rom (if it is anything at all)
+        jmp short sm_keepram
+
+sm_testbank1:
+        test byte cs:disc_on
+        je just_pagein_popax         ;if no disciple, bank 1 is rom
+        jmp short sm_keepram
+
+sm_testsamram:
+        cmp byte cs:rommod,3        ;samram?
+        je just_pagein_popax         ;if not, bank 3 is page 0 of '128, so continue
+
+sm_keepram:
         mov bh,al               ;save old pagenumber in bh, is made zero below
         add al,al
         add al,al
@@ -1044,16 +1437,21 @@ swap_mem_far:
 ;
 ;The following important subroutine loads a .Z80 or a .SNA file from disk.
 ;Input is AX, which is zero is the file to load is a .Z80 file, or 1 if
-;it is a .SNA file, and BX which holds the handle of the file. The subroutine
+;it is a .SNA file; bit 1=1 if no settings are to be changed (MFlag and
+;Joytable), and BX which holds the handle of the file. The subroutine
 ;loads and unpacks the file, and after that it loads the romfile again if
 ;necessary. The spectrum segment is updated (right rom is put into place,
 ;ram banks are loaded). If AX is nonzero upon completion, there was (probably)
 ;an error in the .Z80 file format. (it could also have been a disk error)
+;Exits with file open, file pointer pointing to end, or to 'SLT' letters of
+;SLT separator.
 ;
 load_z80_file:
         push ds
         push ax
         push bx
+        mov word cs:vgahcrscroffset,0
+        call reset_headervars           ;reset variables that are in v3 headers of .z80 files
         call mdrv_clearbuffer           ;the 16384 byte mdrv buffer is used
         push cs                         ; in load_version2_z80file
         pop ds
@@ -1066,11 +1464,13 @@ load_z80_file:
         call swap_mem
         pop ax
         mov dx,offset rfa
-        test ax,ax
+        test al,1
         if nz jmp load_sna_file
-        mov cx,30
+        push ax
+        mov cx,30                       ;length v1 header
         mov ah,03f
         int 021
+        pop dx                          ;dl=mode byte
         if c jmp lzf_error_close
         cmp ax,30
         if nz jmp lzf_error_close
@@ -1084,11 +1484,9 @@ load_z80_file:
         SHR AL,1
         MOV cs:NEWBOR,AL
         cmp word cs:rpc,0
-        if z jmp load_version2_z80file
-;        test AL,8
-;        if nz mov cs:rommod,2   ;turn samram on (irritating; commented away)
-        cmp cs:rommod,3         ;'128 or '128+if1?
-        if ae mov cs:rommod,1   ;if so, turn 128 off, if1 on
+        if z jmp load_version23_z80file
+        cmp cs:rommod,3         ;mgt, or 128k with anything? (i.e. hardware modes
+        if ae mov cs:rommod,1   ; not existing in v1) Then switch on 48k+if1
         mov byte cs:hstate,0    ;default state of 74ls259
         mov byte cs:if1flg,0
         push ax                 ;save 'compression' bit
@@ -1142,8 +1540,10 @@ load_sna_file:
         mov ah,03f
         int 021                 ;LAAD PROGRAMMA
         if c jmp lzf_error_close
-        mov ah,03e              ;close handle
-        int 021
+        cmp ax,cx
+        if ne jmp lzf_error_close
+;        mov ah,03e              ;close handle
+;        int 021
         push es
         push si
         push cs
@@ -1191,10 +1591,11 @@ invxloop:
         xchg bx,dx
         mov [offset rfa+bx],al
         loop invxloop
+        call reset_headervars
         pop si
         pop es
         pop ds
-        xor ax,ax
+        xor ax,ax               ;already done in reset_headervars, but ok
         call swap_mem
         xor ax,ax
         ret
@@ -1204,17 +1605,44 @@ xtabsna:
         db 13,20,14,26,15,22,16,28,17,26,18,24,19,21,21,23,22,29,23,29,24,28
         db 25,26,26,28,28,29
 
+reset_headervars:               ;used in loading old .z80 files and .sna files
+        mov byte cs:if1flg,0    ;Not necessary; done in LOAD_ROMS
+        mov byte cs:discflg,0   ;Disciple not paged. (done in LOAD_ROMS)
+        mov byte cs:m128flg,0   ;Multiface rom not paged
+        mov word cs:rompage1,-1 ;Lower 16k is all ROM
+        mov ax,0
+        call swap_mem           ;Make rom correspond to settings -
+        push ds                 ; better be sure than sorry
+        push es
+        push cs
+        pop es
+        push cs
+        pop ds
+        mov si,offset _udef_joy
+        mov di,offset joytable
+        mov cx,5
+        cld
+        rep movsw
+        mov si,offset _udef_keys
+        mov cx,5
+        rep movsw
+        pop es
+        pop ds
+        ret
+
 popandret:
         pop ds
         ret
-load_version2_z80file:
+load_version23_z80file:
+        push dx                 ;save mode byte
         mov dx,offset length
         mov cx,2
         mov ah,03f
         int 021
+        pop dx
         if c jmp lzf_error_close
-        mov cx,23
-        xchg word cs:length,cx
+        mov cx,headerlen-2
+        xchg word cs:length,cx  ;reset variable, and get value loaded
         cmp ax,2
         if nz jmp lzf_error_close
         mov ax,cx
@@ -1222,18 +1650,64 @@ load_version2_z80file:
         cmp ax,21
         jz loadthistoo
 #endif
-        cmp ax,23
+        cmp ax,headerlen-2      ;Z80 V3
+        je loadthistoo          ;jump if it is
+        cmp ax,23               ;Z80 V2, V2.01
         mov ax,2
-        jnz popandret           ;unknown version!
+        jne popandret           ;unknown version
 loadthistoo:
+        mov al,cs:rommod
+        xor ah,ah
+        mov dh,cs:mflag
+        push dx                 ;save mode byte and MFLAG
+        push ax                 ;and rommod
         mov dx,offset rpc2
         mov ah,03f
         int 021
+        pop si                  ;rommod to si
+        pop dx
         if c jmp lzf_error_close
         cmp ax,cx
         if nz jmp lzf_error_close
+        cmp ax,headerlen-2              ;V3
+        je  loadthistoo1                ;jump if it is
+        cmp byte ptr cs:rommod,3        ; old 128K mode? ***** HMc *****
+        jb loadthistoo1                 ; jump if not ***** HMc *****
+        add byte ptr cs:rommod,1        ; convert old 128K mode to new ***** HMc *****
+loadthistoo1:
         mov ax,word cs:rpc2
         mov cs:word rpc,ax
+        test dl,2
+        je lzf_usenewsettings
+        mov cs:mflag,dh                 ;reset MFLAG to old value
+        cmp cs:rommod,2                 ;samram?
+        je lzf_useoldsettings           ;never change samram mode
+        cmp cs:rommod,3
+        if e dec cs:rommod              ;temporarily use code '2' for 48k+mgt
+        and cs:rommod,4                 ;only keep 128k/48k bit
+        and si,3                        ;only keep none/if1/mgt bit
+        or cs:rommod,si
+        cmp cs:rommod,2
+        if e inc cs:rommod              ;reset to code '3' again
+        jmp lzf_useoldsettings
+lzf_usenewsettings:
+        push ds
+        push es
+        push cs
+        pop es
+        push cs
+        pop ds
+        mov di,offset _udef_joy
+        mov si,offset joytable
+        mov cx,5
+        cld
+        rep movsw
+        mov di,offset _udef_keys
+        mov cx,5
+        rep movsw
+        pop es
+        pop ds
+lzf_useoldsettings:
         push bx
         call load_romfile
         pop bx
@@ -1252,11 +1726,17 @@ load_memblocks:
         if z jmp blocks_loaded
         cmp ax,3
         if nz jmp lzf_error_close
+        xor dx,dx
+        mov cx,cs:mlength
+        test cx,cx
+        if z jmp blocks_loaded          ;v3.04: stop if .SLT extension encountered
+        cmp cx,64
+        if c jmp lzf_error_close
+        cmp cx,16384
+        if a jmp lzf_error_close
         push ds
         mov ax,cs:mdrvseg
         mov ds,ax
-        xor dx,dx
-        mov cx,cs:mlength
         mov ah,03f
         int 021
         pop ds
@@ -1269,7 +1749,7 @@ load_memblocks:
         if c jmp lzf_error_close
         jmp load_memblocks
 blocks_loaded:
-        cmp byte cs:rommod,3
+        cmp byte cs:rommod,4            ; ***** HMc MOD *****
         if ae jmp init_mem_128
         mov ax,0305
         call swap_mem
@@ -1326,8 +1806,8 @@ init_mem_128:
 
 lzf_error_close:
         pop ds
-        mov ah,03f
-        int 021
+;        mov ah,03f
+;        int 021
         mov ax,1
         ret
 
@@ -1394,18 +1874,31 @@ szf_sam_bits:
         mov byte cs:hstate,ah           ;store the state of the 74ls259 chip
 szf_nosam:
         pop bx
-        mov word cs:length,23
+        mov word cs:length,headerlen-2  ; ***** HMc MOD *****
         mov ax,cs:rpc
         mov cs:rpc2,ax
         mov cs:rpc,0
+        mov byte cs:zero,0
         push cs
         pop ds
+        push es
+        push cs
+        pop es
+        mov si,offset _udef_joy
+        mov di,offset joytable
+        cld
+        mov cx,5
+        rep movsw
+        mov si,offset _udef_keys
+        mov cx,5
+        rep movsw
+        pop es
         mov dx,offset rfa
-        mov cx,55                       ;23+2+30
+        mov cx,headerlen+30             ;old + new header
         mov ah,040
         int 021
         if c jmp szf_error
-        cmp ax,55
+        cmp ax,headerlen+30             ; ***** HMc MOD *****
         if nz jmp szf_error
         mov ax,cs:rpc2
         mov cs:rpc,ax
@@ -1428,13 +1921,13 @@ szf_saveloop:
         mov al,cs:mpage
         cmp al,3
         jnz szf_s_no3
-        cmp byte cs:rommod,3
-        jb szf_next
+        cmp byte cs:rommod,4            ; 48K? ***** HMc MOD *****
+        jb szf_next                     ; jump if it is  ***** HMc *****
 szf_s_no3:
         cmp al,9
         jb szf_s_less9
-        cmp byte cs:rommod,3
-        jb szf_next
+        cmp byte cs:rommod,4            ; 48K? ***** HMc MOD *****
+        jb szf_next                     ; jump if it is ***** HMc *****
 szf_s_less9:
         cmp al,6
         jb szf_do_save
@@ -1442,6 +1935,8 @@ szf_s_less9:
         ja szf_do_save
         cmp byte cs:rommod,2
         jb szf_next
+        cmp byte cs:rommod,3            ; ***** HMc *****
+        je szf_next                     ; ***** HMc *****
 szf_do_save:
         push bx
         call pack_16k           ;pack page MPAGE in mdrvseg:0000. CX=length
@@ -1469,7 +1964,7 @@ szf_next:
         inc al
         mov cs:mpage,al
         cmp al,11
-        jb szf_saveloop
+        if b jmp szf_saveloop
         mov ah,03f
         int 021
         mov ax,0
@@ -1502,7 +1997,5 @@ szf_error:
         ret
 
 
-
-
 startup ends
-
+

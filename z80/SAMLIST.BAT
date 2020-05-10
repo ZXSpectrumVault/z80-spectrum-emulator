@@ -11,7 +11,7 @@ if not exist %pth%z80.exe goto notfound
 if not exist samsrc.tap goto notfound
 if not exist samlist.z80 goto notfound
 :path
-%pth%z80 -tisamsrc -wsamsrc.txt samlist
+%pth%z80 -ts. -tisamsrc -wsamsrc.txt samlist
 if not exist samsrc.txt goto error
 echo File SAMSRC.TXT created successfully.
 goto end

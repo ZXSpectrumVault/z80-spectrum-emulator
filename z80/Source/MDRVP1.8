@@ -1,13 +1,3 @@
-;
-;   This file is part of the registered Spectrum emulator package 'Z80'
-;   version 2.01, and may not be distributed.  You may use this source for
-;   other PC based Spectrum or Z80 emulators only after permission.  It is
-;   however permitted to use this source file or parts thereof for Spectrum
-;   or Z80 emulators on non-PC based machines, provided that the source is
-;   acknowledged.
-;
-;                                                       Gerton Lunter, 3/5/93
-
 startup segment para public
 
 oldversionload equ 1
@@ -133,6 +123,7 @@ OUT_IF1:
         JZ IGNORE_NET
         PUSH AX
         MOV AL,CS:B[OFFSET RS_OUT+1]
+        not al
         CALL WRITE_SAVEREG
         MOV WORD CS:RS_OUT,0
         POP AX
@@ -141,6 +132,8 @@ IGNORE_NET:
 
 ED_SENDRSBYTE:
         MOV AL,CL
+        not al
+write_savereg_far:
         CALL WRITE_SAVEREG
         RETf
 
@@ -153,7 +146,6 @@ WRITE_SAVEREG:
         PUSH BP
         PUSH ES
         PUSH DS
-        NOT AL
         CALL WRITE_RS_BYTE
         MOV AX,CS:RSOUTCOUNT
         ADD AX,1
@@ -582,7 +574,11 @@ mdrv_gh_found:
         add bl,bl
         mov bx,cs:[bx+offset mhandles]
 mdrv_gh_writprot:
+        cmp cs:mdrvhandle,bx
+        je mdrv_gh_nochange
         mov cs:mdrvhandle,bx
+        mov word cs:mdrvpointer,0    ;signal 'buffer is empty'
+mdrv_gh_nochange:
         test bx,bx
         jnz ret
         mov cs:mdrvwritprot,0
@@ -680,8 +676,8 @@ mdrv_fb_err:
         pop ax
         ret
 
-mdrv_savebuf:
-        cmp word cs:mdrvpointer,0200
+mdrv_savebuf:                           ;Copies data from in/out buffer
+        cmp word cs:mdrvpointer,0200    ; to 32-block-buffer
         if a mov byte cs:mdrvheader,0
         mov word cs:mdrvpointer,0
         mov byte cs:mdrvgap,0
@@ -754,7 +750,7 @@ mdrv_gb_frommemory:
         ret
 mdrv_gb_loadbuf:
         push bx
-        call mdrv_clearbuffer
+        call mdrv_clearbuffer   ;Save data if necessary
         pop bx
 mdrv_gb_nochange:
         mov cs:mdrvbufhandle,bx
@@ -782,8 +778,8 @@ mdrv_gb_lseek:
         int 021
         ret
 
-mdrv_clearbuffer:
-        mov bx,cs:mdrvbufhandle
+mdrv_clearbuffer:                       ;Saves 32 block buffer if neccessary,
+        mov bx,cs:mdrvbufhandle         ; and clears the space
         test bx,bx
         jz mdrv_buffererr
         cmp byte cs:mdrvbufchanged,0
@@ -799,7 +795,7 @@ mdrv_clearbuffer:
         int 021
         pop ds
         mov byte cs:mdrvbufchanged,0
-        mov word cs:mdrvbufhandle,0
+        mov word cs:mdrvbufhandle,0     ;Signal 'no data in buffer'
 mdrv_buffererr:
         stc
         ret
@@ -817,7 +813,7 @@ mdrv_writegap:                  ;called by the timer, to emulate OUT 239,0
         mov byte cs:readwrt,0
         call mdrv_flushbuf
         mov byte cs:datawritten,0ff
-        mov byte cs:mdrvpointer,15
+        mov word cs:mdrvpointer,15
         call mdrv_flushbuf
         pop word cs:readwrt
         ret

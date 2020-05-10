@@ -1,12 +1,12 @@
 /*
     This file is part of the registered Spectrum emulator package 'Z80'
-    version 2.01, and may not be distributed.  You may use this source for
+    version 3.04, and may not be distributed.  You may use this source for
     other PC based Spectrum or Z80 emulators only after permission.  It is
     however permitted to use this source file or parts thereof for Spectrum
     or Z80 emulators on non-PC based machines, provided that the source is
     acknowledged.
 
-                                                       Gerton Lunter, 3/5/93
+                                                     Gerton Lunter, 10/8/96
 */
 
 /* Convert -- utility bij de Spectrum Emulator */
@@ -29,8 +29,8 @@ char	line[1024],nextline[1024],outline[4096],fnam[80];
 int n,b,xinp,inpt,xoutp,linec,bufsize,linen,byteswritten;
 FILE	*inf,*outf,*outf2;
 const char  gif_header[]={'G','I','F','8','7','a',0,1,192,0,0xB3,0,0,
-                 0,0,0, 0,0,110, 130,0,0, 150,0,150, 0,170,0, 0,180,180, 190,190,0, 200,200,200,
-                 0,0,0, 0,0,120, 145,0,0, 180,0,180, 0,215,0, 0,230,230, 255,255,0, 255,255,255,
+                 0,0,0, 0,0,162, 223,0,0, 231,0,182, 0,215,0, 0,215,215, 210,210,0, 202,202,202,
+                 0,0,0, 0,0,174, 243,0,0, 255,0,223, 0,243,0, 0,255,255, 255,255,0, 255,255,255,
                  ',',0,0,0,0,0,1,192,0,0,4};
 #define ghlen 72
 const char  pcx_header[128]={10,3,1,1,0,0,0,0,0xFF,0,0xBF,0,0,1,0xC0,0,
@@ -419,7 +419,7 @@ int argc;
 {
 	char cntlen=0,translat=0,inmod=0,outmod=0,cnt,x;
 	char *y;
-    puts ("Convert - Conversion utility Spectrum-PC - (c) 1993 G.A. Lunter - version 2.01");
+    puts ("Convert - Conversion utility Spectrum-PC - (c) 1994 G.A. Lunter - version 3.0");
 	puts ("          This program may not be distributed.");
 	puts ("          It is part of the registered Spectrum Emulator package.\n");
 	if (argc<3) {
@@ -585,7 +585,7 @@ int argc;
 	/************************************************
 	Convert: Omzetten ASCII in BASIC
 	*************************************************/
-		while (!feof(inf)) {
+		while (1) {
 			if (!readline()) {
 				if (inpt==0) goto end_of_file;
 				flushit();
@@ -599,7 +599,7 @@ int argc;
 				goto exiterr;
 			}
 			if (!writeline()) goto wderr;
-            if (!(0x0F & linec++)) printf ("\rConverting: Line %u",linen);
+            if ((0x0F & linec++)==0) printf ("\rConverting: Line %u",linen);
 		}
 	end_of_file:
         printf ("\rConverting: Line %u, finished.\n",linen);
@@ -680,4 +680,3 @@ int argc;
 	fclose (inf);
     return (0);
 }
-

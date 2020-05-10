@@ -1,15 +1,15 @@
 /*
     This file is part of the registered Spectrum emulator package 'Z80'
-    version 2.01, and may not be distributed.  You may use this source for
+    version 3.04, and may not be distributed.  You may use this source for
     other PC based Spectrum or Z80 emulators only after permission.  It is
     however permitted to use this source file or parts thereof for Spectrum
     or Z80 emulators on non-PC based machines, provided that the source is
     acknowledged.
 
-                                                       Gerton Lunter, 3/5/93
+                                                     Gerton Lunter, 10/8/96
 */
 
-
+/* z802tap - converts .z80 snapshot to tape blocks including loader */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,6 +32,18 @@ struct z80header {
     int length,pcreg2;
     char hmode,outstate,if1paged,flagbyte2,bytefffd;
     char soundreg[16];
+
+    int tstates;
+    char viertel;
+    char zero;
+    char discflg;
+    char m128flg;
+    char rompage1,rompage2;
+    int udef_joy[5];
+    int udef_keys[5];
+    char disctype;
+    char discinhibit;
+    char discinhibitflg;
 };
 
 struct blockheader {
@@ -51,6 +63,54 @@ const unsigned char loadline1[]={0xd2,0,0,1,0xfd,0x7f,0x3e,0x8f,0x2e,0,0x3b,0xed
       0xed,0x79,6,0xff,0xe1,0x38,0xf3,0x3e,0,0xd3,0xfe,0xc1,0xd1,0xc3,0xe0,0x56};
 const unsigned char loadline2[]={0xd9,1,0,0,0x11,0,0,0x21,0,0,0xdd,0x21,0,0,0xfd,0xe1,
       0x3e,0,0xed,0x4f,0xf1,8,0xf1,0x31,0,0,0xed,0x56,0xfb,0xc3,0,0};
+
+/*
+
+loadline1:  (line 189)
+
+#55E0   JP   NC,#0000   ;Reset on load error
+        LD   BC,#7FFD   ;First OUT sets ram page
+        LD   A,#8F      ;#8F+#7F = 0E, counter for 14 sound chip registers
+        LD   L,#10      ;This value is sent to 7FFD (example)
+#55EA   DEC  SP         ;pre-compensate for the POP below; just POP a byte
+        OUT  (C),L      ;First time set ram page, then set 14 sound registers
+        ADD  A,B        ;First time change 8F into 0E, then decrease A
+        LD   B,#BF      ;Select sound register port
+        OUT  (C),A      ;0E,...,0,FF (but then carry=0 and value doesn't get
+        LD   B,#FF      ; written).  Make address for sound register value port
+        POP  HL         ;Pop a word; L is sound register value.  At the end
+        JR   C,#55EA    ; this pops the actual HL' value.  Cy=1 here means more
+        LD   A,#00      ; sound reg values to pop. (0=example)
+        OUT  (#FE),A    ;Set border colour
+        POP  BC         ;Pop registers
+        POP  DE
+        JP   #56E0      ;Continue in line 190 (one but lowest)
+
+loadline2:  (line 190)
+
+#56E0   EXX             ;Those were the exchange registers
+        LD   BC,#5F49   ;Just load the values of the normal registers (example)
+        LD   DE,#073C   ;(example)
+        LD   HL,#85FC   ;(example)
+        LD   IX,#8474   ;(example)
+        POP  IY         ;Pop IY.
+        LD   A,#19      ;(example)
+        LD   R,A        ;Set R too
+        POP  AF         ;Set AF'
+        EX   AF,AF'
+        POP  AF         ;Set AF
+        LD   SP,#5BFE   ;(example)
+        IM   1          ;(example)
+        DI              ;(example)
+        JP   #96AC      ;Start address (example)
+
+Stack:  space of two words for loader (used when calling ld_edge2)
+        return address #55e0
+        14 sound register values (bytes)
+        HL',BC',DE',IY,AF',AF make 32 bytes
+
+*/
+
 
 char filename[128];
 int fin,fout;
@@ -122,9 +182,6 @@ unsigned char *inp;
             for (p=n;p;p--) putbit((q<<=1)>>15)}
     #define marker 0xFFFF
 
-/*    memcpy(temp,inp,16384);
-    return(16384);              */
-
     hash=(unsigned*)(temp+16384);
     for (i=0;i<16384+4096;i++) hash[i]=marker;
     input=0;
@@ -177,10 +234,7 @@ unsigned char *inp;
     if (output<16384+256) {
        memcpy(temp+output,inp+input,256);
        return(output+256);
-    } else {
-      memcpy(temp,inp,16384);
-      return(16384);
-    }
+    } else return(16384);
 }
 
 
@@ -209,7 +263,7 @@ unsigned int size;
 int main(int argc, char **argv)
 {
     int i,j,compr=1,scr=0;
-    puts ("Z802TAP - Converts .Z80 file to .TAP file - (c) 1993 G.A. Lunter - v2.01");
+    puts ("Z802TAP - Converts .Z80 file to .TAP file - (c) 1994 G.A. Lunter - v3.0");
     puts ("          This program may not be distributed.");
     puts ("          It is part of the registered Spectrum Emulator package.\n");
     if (argc<2) {
@@ -227,6 +281,7 @@ int main(int argc, char **argv)
     temp=malloc(60000L);
     if (temp==NULL) {
        puts ("Error - not enough memory.");
+       for (i=0;i<8;i++) printf ("%p\n",specmem[i]);
        exit (1);
     }
     i=1;
@@ -286,13 +341,15 @@ int main(int argc, char **argv)
          memcpy(specmem[2],temp+32768L,16384);
        }
     } else {
-      if (read(fin,&header.length,25)!=25) goto errz80;
-      if (header.length!=23) goto errz80;
+      if (read(fin,&header.length,2)!=2) goto errz80;
+      if ((header.length!=23)&&(header.length!=54)) goto errz80;
+      if (read(fin,&header.pcreg2,header.length)!=(header.length)) goto errz80;
       header.pcreg=header.pcreg2;
+      if ((header.length==23)&&(header.hmode>=3)) header.hmode++;
       if (header.hmode==2) {
          puts ("\n\nError - Won't convert SamRam snapshots! (Change hardware mode in emulator)");
          exit (1);
-      } else if (header.hmode<2)
+      } else if (header.hmode<4)
           printf ("Processing: ......");
       else {
             if (header.outstate&8) printf ("\007WARNING: Program may not load correctly. Try snapping it at a different point.\n\n");
@@ -306,11 +363,10 @@ int main(int argc, char **argv)
          if (unpack(temp,specmem[block.page-3],16384)!=block.length) goto errz80;
       } while (read(fin,&block,3)==3);
     }
-    if (header.hmode<3) {
+    if (header.hmode<4) {
        for (i=0;i<16;i++) header.soundreg[i]=0;
        header.outstate=16;
     }
-
 
     write(fout,&LOADER,425);
     tapehdr.type=3;
@@ -335,14 +391,12 @@ int main(int argc, char **argv)
     }
     tapehdr.fnam[9]='0';
     for (i=0;i<8;i++) {
-        if (((header.hmode>=3)||(i==1)||(i==2))&&(i!=5)) {
+        if (((header.hmode>=4)||(i==1)||(i==2))&&(i!=5)) {
            printf ("*\b");
-           if (compr)
-              j=pack(specmem[i]);
-           else
-               memcpy(temp,specmem[i],j=16384);
+           if (compr) j=pack(specmem[i]); else j=16384;
+           if (j==16384) memcpy(temp,specmem[i],16384);
            tapehdr.length=j;
-           if (header.hmode>=3)
+           if (header.hmode>=4)
               tapehdr.b0=i;
            else
                tapehdr.b0=i+7;
@@ -396,4 +450,3 @@ int main(int argc, char **argv)
 }
 
 
-

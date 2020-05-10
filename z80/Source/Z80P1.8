@@ -1,18 +1,11 @@
-;
-;   This file is part of the registered Spectrum emulator package 'Z80'
-;   version 2.01, and may not be distributed.  You may use this source for
-;   other PC based Spectrum or Z80 emulators only after permission.  It is
-;   however permitted to use this source file or parts thereof for Spectrum
-;   or Z80 emulators on non-PC based machines, provided that the source is
-;   acknowledged.
-;
-;                                                       Gerton Lunter, 3/5/93
-
 startup segment para public
 
 ;zx spectrum 48k/128k emulator
 ;
 ;eerste regel geschreven op 11 november 1988, kwart over vijf.
+
+xherc   equ 0
+plant   equ 0
 
 ;**********************************************************************
 ;EERST WORDT EEN STACK SEGMENT GEDEFINIEERD
@@ -27,7 +20,9 @@ STACK SEGMENT PARA STACK
 STACK ENDS
 
 ;There should be EXACTLY 24 bytes before the header block - the symbols
-;RIX and RIY are referenced by value (031 and 02F) in dd.8
+; RIX and RIY are referenced by value (031 and 02F) in dd.8
+;The label IN_TAB should be at address 0000; see the code starting at
+; in_vocfile in ed.8
 
 IN_TAB:         DB 8 DUP ?
 IN2_TAB:        DB 8 DUP ?
@@ -58,24 +53,36 @@ IMODE   DB ?                    ;INTERRUPT MODE (bits 0-1). 2:Issue2, 3:Dub.Irpt
                                 ;4-5: Vid.sync.mode, 6-7:Joystick interface
 
 ;The next 25 bytes are saved in version 2.0 Z80 files
+;The next 56 bytes are saved in version 3.0 Z80 files
+headerlen equ 56
 
-LENGTH  DW 23                   ;length of additional info block
+LENGTH  DW headerlen-2          ;length of additional info block
 RPC2    DW ?                    ;Program counter for version >= 2.0
-ROMMOD  DB ?                    ;Emulator mode: 0=norm,1=if1,2=sam,3=128,4=3+1
+ROMMOD  DB ?                    ;Emulator mode: 0=norm,1=if1,2=sam,3=mgt,4=128,5=128+if1,6=128+mgt
 HSTATE  DB ?                    ;If in Samram mode, bitwise state of 74ls259
                                 ;If in 128 mode, last OUT to 7ffd
 IF1FLG  DB ?                    ;0FF if if1 rom paged in
 MFLAG   DB ?                    ;bit 0=1: r register emulated
                                 ;bit 1=1: ldir emulated
-SREG    DB ?                    ;Last out to fffd (soundchip register number)
+lastfffd DB ?                   ;Last out to fffd (soundchip register number)
 SSTATE  DB 16 dup ?             ;Sixteen sound chip registers
+_tstates dw 0                   ;counts off 17472 T = 69888/4 T = 1/200th sec. (first 3.0 variable)
+VIERTEL DB ?                    ;3 starts with interrupt; 0,1: screen; 2:lower border
+zero    db 0                    ;Carlo Delhez' byte
+DISCFLG DB 0                    ;0FF if disciple rom paged in
+m128flg db 0                    ;0FF if Multiface rom paged. MUST be just after discflg. Should be zero in .Z80 file
+rompage1 db 0ff                 ;0 if 0-8191 is RAM
+rompage2 db 0ff                 ;0 if 8192-16383 is RAM
+joytable dw 10 dup ?            ;image of _udef_joy and _udef_keys during save/load
+_DISCTYPE DB 0                  ;0=DISCiPLE,8=UNIDOS,16=PLUS D  ***** HMc *****
+_DISCINHIBIT db 0               ;DISCiPLE/UNIDOS INHIBIT BUTTON: 0-OUT, 0ff-IN ***** HMc *****
+_DISCINHIBITFLG db 0            ;0-ROM pageable, 0ff-ROM INACTIVATED ***** HMc *****
 
 ;Header of memory block
 
 MLENGTH DW ?                    ;Length of data block (without header)
 MPAGE   DB ?                    ;Page number of datablock
 
-lastfffd db ?                   ;last out to fffd (sound chip reg no)
 s_oldctrl db ?                  ;old value of control register
 envaddlo dw ?                   ;determines freq. of envelope
 envaddhi dw ?
@@ -85,7 +92,6 @@ envadd   db ?                   ;0,1 or ff
 env2nd   db ?                   ;value of envelope at start of next period
 env2add  db ?
 envtog   db ?                   ;0ff if envelope toggles
-TEMP_PC DW ?                    ;To store the PC when crashing at an IN 0
 TEMP_F  DB ?                    ;Inofficial flag emulation
 temp_fa db ?
 NMI     DB ?                    ;0FF ALS NMI IPV INTR
@@ -93,13 +99,14 @@ BREAK   DB ?
 E0FLAG  DB ?
 NUMLCK  DB ?
 KSTATE  DW ?
+readtypeahead db 0              ;0ff if keyboard typeahead buffer to be emptied
 azerty  db 0                    ;0ff if using azerty keyboard
 SHIFTSTATE      DB ?
 SHFTSTATES      DB 35 DUP ?     ;SHIFTSTATES MULTI-KEY TOETSEN BIJ INDRUKKEN
 LASTKEY DB ?
 SPCTEL  DB ?
 KEMPSTON_STATE  DB ?            ;STATUS KEMPSTON-JOYSTICK
-tstates dw 0
+_tstatehi dw 0
 INTEL   DB ?
 INTEL2  DW ?
 INTEL3  DW ?
@@ -108,8 +115,6 @@ QFLAG   DB ?
 ATRSCR  DW ?
 RFSHFLG DB ?
 VIDRFSH DB ?
-VIERTEL DB ?
-FLSHCNT DB ?
 ATRFLSH DW ?
 MODE    DB ?                    ;VOOR INITHERC
 TTYPE   DB ?                    ;VOOR PLANTRONICS EMULATIE
@@ -118,51 +123,148 @@ MODEPD  DB ?                    ;0FF ALS MODE GEPRINT: ZIE VIDEO.8
 CURPOSN DW ?
 VALUE   DW ?
 REGIST  DB 0
-C_ACTIVE        DB ?
-C_ACTION_CODE   DB ?
+C_ACTIVE        DB 0
+C_ACTION_CODE   DB 0
 
-IF1_ON  DB ?                    ;0ff if IF1 AKTIEF
+IF1_ON  DB ?                    ;0ff if IF1 emulated
+_m128_on db 0                   ;0ff if multiface (128) emulated
+DISC_ON DB 0                    ;0ff if DISCiPLE ACTIVE **** HMc ****
+DISCCNT dw 200                  ;Counter for disciple interrupt (initial 4 sec)
+disccnt0 dw 100                 ;Normal value: 1 disc. interr. every 2 seconds
+DISCPRNSTATUS DB 0              ; DISCiPLE printer and Network status bits *** Hmc ***
 DOUBLE  DB ?                    ;" DUBB. IRUPT SNELHEID
 FLASH   DB ?                    ;" FLASH EMULATIE
 HERCFLG DB ?                    ;" HERCULES
+#if xherc
 XTDHERC DB ?                    ;" XTD HERC
+#endif
 CGA     DB ?                    ;" CGA
 EGA     DB ?                    ;" EGA
 VGA     DB ?                    ;" VGA
 trivga  db ?                    ;" 400-line VGA
 greyvga db ?                    ;" black/white VGA
+#if plant
 PLANTR  DB ?                    ;" PLANTR
+#endif
+showintro db 1
+introscrseg dw ?                ;Temporary storage of intro screen
 SILENCE DB ?                    ;" STILLE SPECTRUM
 cmschips db ?                   ;" CM/S chips used
 intsnd  db ?                    ;" internal speaker for 128 sound
+_blaster db 0                    ;" using Soundblaster ADC for tape input (default for get_spd)
+blastmintime dw -119             ;minimum time between samples (1=1.19 MHz) (dflt 10kHz)
+blastlasttime dw 0
+prev_in db 191                  ;Buffer of last sample when using SB + non Real mode
 ISSUE2  DB ?                    ;" ISSUE 2 GEEMULEERD
-IMMNMI  DB ?                    ;" IMMEDIATE NMI AFTER LOADING .Z80 FILE
+
 winkey  db ?                    ;" reading keys from INT 10 etc for windows comp'ty.
+                                ; (v3.04: don't use timer, but do use kbd irpt)
+_vocplay dw 0                   ;" playing VOC file (counting T states)
+_outlog dw 0                    ;" logging outs (counting T states)
+debugflg db ?                   ;0ff if int3, 0fe if save at address, 0 otherwise
+mapflg db 0                     ;0ff if map is being kept of executed z80 code
+mapfilehandle dw 0
+coloremu db ?                   ;0ff if emulating hi color res. effects
+tracing db 0                    ;0ff if tracing in .OUT files
+_usercoloremu db ?              ;0ff if user WANTS hi color res. effects
+_nohcrmem   dw 0                ;0ff if no hcr memory buffers allocated
+countt  db ?                    ;=winkey OR _vocplay OR coloremu OR _outlog; 0ff iff
+                                ; the emulator is counting T states
+
+_outloghandle   dw 0            ;handle for out log file
+_outlogtable    dw 0fe          ;(default)
+                dw 16 dup 0     ;max 16 words, 0 terminated
+outlogbufseg    dw ?            ;segment of out log file buffer
+outlogpointer   dw 0            ;pointer into out log buffer
+outlogbuflen    dw 8000         ;default buffer length; changed by -xt. Divisible by 80
+outlogall       db 0            ;if 0 only FE outs that change MIC|EAR are logged
+
+linecounter db ?                ;Used in hi color emul mode
+dispaddrpointer dw ?
+vgahcrbufpointer dw ?           ;double pointer, together with vgahcrbuf
+vgahcrbuf dw ?                  ;segment of 32K buffer
+vgahcrborbufptr dw ?            ;pointer into border buffer for hcr emul
+vgahcrborbuf dw ?               ;12000 bytes
+bornochange db ?                ;0ff if border was stable last 1/50 second
+vgahcrscroffset dw ?            ;Screen offset (used in 128 mode)
+vgahcrnodata db ?               ;0ff if data in hcr buffer not okay (128 mode)
+tconst dw ?                     ;224 or 228
+tquarter dw ?                   ;17472 or 17727
+tconst0 dw ?
+tconst1 dw ?
+tconst2 dw ?
+tconst3 dw ?                    ;used in border pattern emulation
+tconst4 dw ?
+tconst5 dw ?
+tconst6 dw ?                    ;constants for hcr emulation
+
+amsmouse    db 0                ;0ff if ams mouse emulated
+amsmodea    db 1                ;only mode 1 emulation
+amsmodeb    db 1
+amsiveca    db 0ff              ;interrupt vector (bit 0=0 always normally)
+amsivecb    db 0ff
+amsienablea db 0                ;<>0 is interrupts enabled
+amsienableb db 0
+amsdataa    db 0                ;data byte
+amsdatab    db 0
+amscnta     db 0                ;number of interrupts to go
+amscntb     db 0
+amsdfvalue  db 0                ;mouse button status (0ff or not)
+ams38irupt  db 0
+
 curs128 db ?                    ;" using shifted cursor keys in '128 mode by def.
+zxprint dw 0                    ;LPT1 default for ZX/Disciple Printer output
+zxprinterlines      dw 0        ;# graphic lines before FF; 0 = no FF
+zxprinterlinescount dw 0
 ADLIB   db 0ff
+baseadr0 dw 0378-0e             ;Used in get_spd
+baseadr dw 0220                 ;SoundBlaster base io addr used for CMS and tape input
+cputype dw ?                    ;88 or 386 (meaning <=286 or >=386)
 GMOD    DB ?                    ;0=CGA, 1=HERC, 2=XTD HERC, 3=PLANTR, 4=ega, 5=vga
 VGASCAN DB ?                    ;0,1,2,3: 200, 350, 400, 480 scanlines
+fstate  dw ?                    ;0000, 0100 (flash state);
+fflag   db ?                    ;0ff if flash toggled
+FLSHCNT DB ?
 EGAPAL  DB ?                    ;1 ALS EGA MET ALTERNATIEF PALET
 IF1SW   DB ?                    ;0FF ALS 16K IF1 BANKSWITCH
 EXPMEM  DB ?                    ;0FF IF EMULATOR SHOULD TRY TO USE EXPANDED MEM
 JOYMODE DB ?                    ;0=cursor/protek/agf, 1=kempston, 2,3=sinclr1,2
+secondjoy db 080
 SYNCMOD DB ?                    ;1=HOOG, 2=NORMAAL, 3=LAGE VID SYNCHRONISATIE
 CXLOOP  DW ?                    ;CX-WAARDE VOOR EEN PAUZE VAN 1/18.2x16 s
 INLOOP  DW ?                    ;CX-WAARDE VOOR LD_EDGE LOOP VAN 1/18.2x4 s
+inloop2 dw ?                    ;cx-waarde voor ld_edge loop van 1/18.2x4 s (soundblaster versie)
 bxcst   dw ?                    ;timing constant for emulator slowdown
 timmod  db ?                    ;temporary var.
         dw 0                    ;used by movecommand
 slowmod dw 20 dup ?             ;4T-23T: 0=-, 1=jmp, 2...=nops
 RELSPD0 DW ?                    ;MAXIMALE REL. SNELH. IN PROMILLES
-debugflg db ?                   ;0 if not debugging (see option -xd)
+_curspd  dw ?                   ;user-selected speed (not actual speed) (max=1000.0, def't=500.0)
 debugadr dw ?                   ;trapping at address debugadr
+_tapewindow db ?                ;0 = no TAP file info window
+reset_romarea db 1              ;see load_romfile
+curifrom    dw 0                ;code for current disk interface ROM loaded (0=none)
+zxprbusy db 0
+zxprstatus db 0
 JOYTEL  DW ?                    ;MACHAFH. STRTW JYSTK UITLEESRTINE (0=geen jstk)
-JOYTELSI DW ?
-JOYTELDI DW ?
+joysimin dw ?
+joysimax dw ?
+joydimin dw ?
+joydimax dw ?
+joybxmin dw ?
+joybxmax dw ?
+joybpmin dw ?
+joybpmax dw ?
 ZANDJOY DB ?                    ;0 ALS GEEN ZANDBERGEN JOYSTICK
 JOYXY   DB ?
+joyxy2  db 0
+msmouse db ?
+horizadd dw ?
+horizsgn db ?
+vertadd dw ?
+vertsgn db ?
 MAXTEL  DB ?
-ADDNUM  DW ?
+ADDNUM  DW ?                    ;Timing constant for timer chip
 TIMNUM  DW ?
 TIMADR  DW ?
 TIMSEG  DW ?
@@ -176,21 +278,26 @@ COM2ADR DW ?
 COM2SEG DW ?
 SEGVIOLADR DW ?
 SEGVIOLSEG DW ?
+int13adr dw ?                                   ; ***** HMc *****
+int13seg dw ?                                   ; ***** HMc *****
+oldrommod db ?                                  ; ***** HMc *****
+printertype db 0                                ; 0-ZX, 0ff-centronics***** HMc *****
+_zxptype db 0                   ; 0-HP, 0ff-Epson ***** HMc *****
 INTTEL  DB ?
 SP2     DW ?
-TIMFLAG DB ?
-VID_ACT DB ?
 BORCLR  DB ?
 NEWBOR  DB ?
-MODFLG  DB ?                    ;0=normaal, 1,2=real mode
+MODFLG  DB ?                    ;0=normaal, 1,2=real mode; bit7=1:part. vid.upd
 KEYSCAN DB ?                    ;B0:SCAN KEYS B1:KEY SCANNED
 TAPEIF  DB ?                    ;N=LPTN ALS TAPEINTERFACE
 TAPEIO  DW ?                    ;TAPE BASE IO ADDRESS
 ISSUE2DEFAULT DB ?              ;STANDAARD UITLEZING LPT POORT
+_tape_pause db 0                ;Pause after loading TAPs
 WORKSP  DB ?
 ACTIVE_ROM      DW ?
 ACTROM2         DW ?
 ramstate        db 4 dup 0fe    ;active pages
+intimer         db 0
 VIDBUFSEG       DW ?
 OLD_MODE        DB ?            ;OUDE VIDEO MODE
 TRAPADR         DW ?
@@ -204,6 +311,7 @@ ROMSEG          DW ?            ;SEGMENT ROM AREA
 samseg          dw ?            ;segment samram speedup buffer (16K)
 sambank         db ?            ;bank currently active in samram spdup bufr
 romhandle       dw 0            ;handle roms.bin
+_pdhandle       dw 0            ;handle plusdrom.bin
 xrhandle        dw 0            ;handle extra rom from option -xr
 emshandle       dw 0            ;handle lim ems driver
 
@@ -223,6 +331,7 @@ GETOUT  DW ?                    ;O GET
 PUTIN   DW ?                    ;I PUT
 GETIN   DW ?                    ;I GET
 COMSDAT DB 0                    ;signals from if1 out-port EF
+_count200hz dw -104
 wkbd_count db 0                 ;1/18.2 tick counter for key release
 wkbd_lastscan db 0              ;latest pressed key
 wkbd_shift db 0                 ;current shift & sym_shft states
@@ -247,8 +356,39 @@ mdrvseg dw 0                    ;segment of +/- 16K cartridge buffer
 mdrvbufchanged db 0
 mdrvbufhandle dw 0
 mdrvbufblock db 0
+novellbroadcastmode db 0        ;Idea: Damion Yames
 COMPORT DW ?                    ;BASE PORT ADDRESS COMN
 CHECKSUM DW ?
+lastvocbit       db ?           ;bit 6=last sample bit; bit 7=1 if valid
+_srate           dw ?           ;sampling rate of current voc block in T states
+_vocdatapoint    dw ?           ;pointer into voc data buffer
+_vocdatalen      dw ?           ;# bytes in voc buffer
+_voctoread       dw ?           ;# bytes left unread in this block
+_voctoreadhi     dw ?           ;hi counter of _voctoread
+curaverage       dw ?           ;used in filter_vocbuffer
+_lastTlo         dw ?           ;Time of last IN from voc file
+_lastThi         dw ?
+_vochandle       dw ?           ;handle of voc file
+_vocerror        db ?
+_voclen          dw ?           ;total # of data bytes in this block
+_voclenhi        dw ?           ;hi counter
+_vocsec          dw ?           ;Seconds read in previous blocks + current
+_vochsec         dw ?           ;10000s of seconds read in prev. blocks
+vocerrmod        db 0           ;<>0 if called from windvoc
+vocbufseg        dw ?
+vocbuflen        dw 49152
+vocheader        db 3 dup ?
+oldint13 dd 0                   ; ***** HMc *****
+olddiskvalue db 0               ; ***** HMc *****
+olddiskaddress dw 0             ; ***** HMc *****
+sinclair1:       dw 0103,0203,0403,0803,01003           ;Sinclair 1 / User def. joystick
+joy_tab:         dw 01003,0404,01004,0804,0104          ;Cursor
+                 dw 2,1,4,8,16                          ;Kempston
+_udef_joy:       dw 0103,0203,0403,0803,01003           ;Sinclair 1 / User def. joystick
+                 dw 01004,0804,0404,0204,0104           ;Sinclair 2
+_udef_keys:      dw '1','2','3','4','5'                 ;left,right,down,up,fire
+
+
 
 ROMADR          DW 0            ;!=0 ALS AL GESCRUNGED
                       
@@ -264,20 +404,24 @@ specchars:
 
 FIXUP_TABLE:
         DW sfix2,sfix4,SFIX5,SFIX6,SFIX7,SFIX8,SFIX9,sfix10,sfix11,sfix12
-        dw sfix13,sfix14,sfix15,sfix16,0
+        dw sfix13,sfix14,sfix15,sfix16,sfix17,sfix18,sfix19,sfix20,sfix21
+        dw sfix22,sfix23,sfix24,0
 
-ROMS_FILENAME:  DB "ROMS.BIN",0
+ROMS_FILENAME:  DB "roms.bin",0
+pd_filename:    db "plusdrom.bin",0
 ini_filename:   db "z80.ini",0
 stext:  ;first text
-NEM:    DB "Insufficient memory available."
+NEM:    DB "Insufficient memory available.  Try using switch -xt; if that fails try -xu"
 L0D0A:  DB 0d,0a,'$'
-MES1:   DB 0d,0a,"Z80 - the Sinclair ZX Spectrum Emulator - (c) 1993 G.A. Lunter - version 2.01a",0d,0a
+MES1:   DB 0d,0a,"Z80 - the Sinclair ZX Spectrum Emulator - (c) 1996 G.A. Lunter - version 3.04",0d,0a
+        db "      DISCiPLE/PLUS D emulation by Hugh McLenaghan.",0d,0a
         db "      Spectrum ROM code copyright Amstrad plc, used by permission.",0d,0a
-        db "      $"
-regmes: db "Registered user: $"
-shwmes: db "Shareware version: see documentation for registration details$"
-hmes:   db 0d,0a,"      Type Z80 -? for help",0D,0A,'$'
+        db "      Multiface 128 ROM code copyright Romantic Robot, licensed use.",0d,0a,'$'
+shwmes: db "      Shareware version: see documentation for registration details",0d,0a,'$'
+hmes:
+        db "      Type Z80 -? for help",0D,0A,'$'
 ROMMES: DB "File ROMS.BIN not found or corrupt.",0D,0A,'$'
+pdmsg:  db "File PLUSDROM.BIN corrupt, or not found. (Must be 16K long)",0d,0a,'$'
 MES4:   DB "      Relative speed of emulator: $"
 MES5:   DB "%",0d,0a,0a,'$'
 toofasterr:     db "Sorry --- this computer is too fast!$"
@@ -289,9 +433,10 @@ ZANDJOYMES:     DB "Digital 'Zandbergen' joystick interface detected.",0d,0a,'$'
 NORMJOYMES:     DB "Analogue IBM joystick interface detected.",0d,0a,'$'
 NOJOYMES:       DB "No joystick interface detected.",0d,0a,'$'
 ERROR_IN_FILE:  DB "Error in .Z80 or .SNA file.",0d,0a,'$'
-error_wrong_version: db "Version 2.0 does not support this .Z80 file - please upgrade.",0d,0a,'$'
+mouseerr:       db "No MS Mouse driver found!",0d,0a,'$'
+error_wrong_version: db "Version 3.0 does not support this .Z80 file - please upgrade.",0d,0a,'$'
 emsmes:         db "EMS memory detected.",0d,0a,'$'
-noemsmes:       db "No EMS memory -- only partial '128 emulation!",0d,0a,'$'
+noemsmes:       db "No EMS memory -- partial and SLOW '128 emulation!",0d,0a,'$'
 EMSERR:         DB "EMS driver error (probably not enough memory).",0d,0a,'$'
 VK1:    DB "CGA",0d,0a,0a,'$'
 VK2:    DB "Hercules",0d,0a,0a,'$'
@@ -301,16 +446,20 @@ VK5:    DB "Plantronics",0d,0a,0a,'$'
 VK6:    DB "VGA",0d,0a,0a,'$'
 adlib_msg:      db "Adlib Compatible soundcard found.",0d,0a,'$'
 noadlib_msg:    db "No Adlib Compatible soundcard found for '128 sound.",0d,0a,'$'
-REGERR: DB "Sorry -- switches -z and -b are available to registered users only.",0d,0a
-        DB "See the documentation for details on how to register for this program.",0d,0a,0a,'$'
+REGERR: DB "Sorry -- you tried using some switches which are available to registered users",0d,0a
+        db "only.  See the documentation for details on how to register for this program.",0d,0a,0a,'$'
+discerr: db "This program does not emulate the DISCiPLE or +D interface.$",0d,0a
+Opt0Error:
+        db "Error: -0 followed by illegal character!",0d,0a,'$'
 PERR:   DB 0d,0a,"Error in parameters on command line.$"
 inierr: db 0d,0a,"Error in z80.ini file at line $"
-dbgerr: db 0d,0a,"Error in trap address; format is -xd#### hexadecimal.$"
+dbgerr: db 0d,0a,"Error in hex word (for -td or -kx): format is -xd#### or -kx#### hexadecimal.$"
 IERR:   db 0d,0a,"Fatal internal error$"
 VIDMES: DB 0d,0a,"No suitable video interface found. Use appropriate switch.",0d,0a,"$"
 NCPERR: DB 0D,0A,"COM-port not found.$"
 NLPERR: DB 0D,0A,"LPT-port not found.$"
-OUTFILE_NF:     DB 0D,0A,"Error during opening output-file.$"
+OUTFILE_NF:     DB 0D,0A,"Error trying to open output-file.$"
+mapfile_nf:     db 0d,0a,"Error trying to open map file.$"
 INFILE_NF:      DB 0D,0A,"Input-file not found.$"
 DUPOUT: DB 0D,0A,"More than one output-channel specified.$"
 MDRVERR: DB 0D,0A,"Invalid microdrive number, or cartridge file not found.$"
@@ -318,85 +467,134 @@ ROMFILE_NF: DB 0D,0A,"Specified ROM image file not found or not exactly 16K byt
 terr1:  db 0d,0a,"-T switch unknown, or arguments missing.$"
 terr2:  db 0d,0a,"Tape input-file not found.$"
 terr3:  db 0d,0a,"Error opening tape output-file.$"
+terr4:  db 0d,0a,"Error opening VOC file.$"
+terr5:  db 0d,0a,"The .VOC file playback feature is only available to registered users.$"
 terr6:  db 0d,0a,"Switch -XP, -XM, -TD or -TS: Invalid directory.$"
 xerr1:  db 0d,0a,"-X switch unknown, or arguments missing.$"
+baseerr: db 0d,0a,"Erroneous SoundBlaster base I/O address; should be between 200 and 270.",0d,0a,'$'
+sb_err: db 0d,0a,"SoundBlaster not found! (Specify base port when different from default 0220h)",0d,0a,'$'
+pkbscanerr: db 0d,0a,"Error: Scan code not in range, or action code wrong.",0d,0a,'$'
+secondjoymes: db 0d,0a,"Using second analogue joystick as Left Sinclair I",0d,0a,'$'
+nosecondjoymes: db 0d,0a,"Second analogue joystick not found",0d,0a,'$'
+pbr_errmsg: db 0d,0a,"Switch -xn: sample rate must be between 5000 and 44100 Hz.$"
+joyerr: db 0d,0a,"Error interpreting user defined joystick switch.  Format:",0d,0a
+        db " -ju<left><right><up><down><fire>",0d,0a
+        db "Special characters:",0d,0a
+        db "  [ = caps shift,",0d,0a
+        db "  ] = symbol shift,",0d,0a
+        db "  / = enter",0d,0a
+        db "  \ = space",0d,0a,'$'
 endmes:
-        db "This program is shareware.  If you like it and use it regularly you should",0d,0a
-        db "register.  The registered version can load all Spectrum programs directly from",0d,0a
-        db "tape, can be slowed down, and comes with several utilities and the complete",0d,0a
-        db "source files.  The registration fee is HFL 25,-- for Dutch users, and HFL 35,--,"
-        db "20 US dollar or 15 British pound for foreign users.  Read the manual for more",0d,0a
-        db "details.  Send the money, together with your name and address, to:",0d,0a,0d,0a
-        db "            Gerton Lunter",0d,0a
-        db "            P.O. Box 2535",0d,0a
-        db "            NL-9704 CM  Groningen",0d,0a
-        db "            The Netherlands",0d,0a,'$'
+        db "This is a shareware program.  If you like it and use it regularly, you can",0d,0a
+        db "register for it.  The registered program can load all Spectrum programs",0d,0a
+        db "directly from tape and sound sample file, it can be slowed down, and it",0d,0a
+        db "emulates the DISCiPLE and +D interfaces.  It comes with several utilities and",0d,0a
+        db "complete source files.  Please read the manual for more details.",0d,0a,0d,0a,'$'
+#endif
 HELPMES:DB "Syntax: Z80 [{-|/}switches ...] [filename[{.z80|.sna}]]",0d,0a
         db 0d,0a
         db "Display adapter options:",0d,0a
         db "   -h        Hercules graphics",0d,0a
+#if xherc
         db "   -xh       Extended Hercules graphics",0d,0a
+#endif
+#if plant
         db "   -p        Plantronics graphics",0d,0a
         db "   -q        Plantronics, different palette",0d,0a
+#endif
         db "   -c        CGA graphics",0d,0a
         db "   -e        EGA graphics",0d,0a
         db "   -v        VGA graphics",0d,0a
-        db "   -xv       400-line VGA (For some Tridents)",0d,0a
-        db "   -xb       Black-and-white VGA",0d,0a
-        db "Spectrum hardware options:",0d,0a
-        db "   -n        Emulate a Spectrum without Interface I",0d,0a
-        db "   -s        Emulate a spectrum with SamRam",0d,0a
-        db "   -1[28]    Emulate a Spectrum 128 (can be used with -n)",0d,0a,'$'
+        db "   -xv       400-line VGA (for some Tridents)",0d,0a
+        db "   -xb       Black-and-white VGA",0d,0a,'$'
 helpmes2:
+        db "Spectrum hardware options:",0d,0a
+        db "   -n        Emulate Spectrum without Interface I",0d,0a
+        db "   -s        Emulate Spectrum with SamRam",0d,0a
+        db "   -1[28]    Emulate Spectrum 128 (can be used with -n)",0d,0a
+        db "   -xk       Emulate Multiface 128 interface  (can't be used with SamRam)",0d,0a
+        db "   -9        Default to M.G.T. interface instead of Interface I",0d,0a
+        db "   -0d       M.G.T. = DISCiPLE ROM (default)",0d,0a
+;        db "   -0u       M.G.T. = UNIDOS ROM",0d,0a
+        db "   -0p       M.G.T. = PLUS D",0d,0a
         db "Emulator configuration:",0d,0a
         db "   -znnn.n   Emulate the Spectrum at speed nnn.n%",0d,0a
-        db "   -xp D     Select default directory D for .Z80 snapshot files",0d,0a
-        db "   -yl, -yh  Low, high video synchronization mode",0d,0a
+        db "   -xx       Hi-resolution colour emulation",0d,0a
         db "   -r        Emulate the R register",0d,0a
+        db "   -l        Better (but slower) LDIR/LDDR emulation",0d,0a
+        db "   -yl, -yh  Low, high video synchronization mode",0d,0a
         db "   -2        Emulate an Issue-2 Spectrum",0d,0a
         db "   -d        Double interrupt frequency (100 Hz)",0d,0a
-        db "   -f        Faster FLASH emulation",0d,0a
-        db "   -l        Better (but slower) LDIR/LDDR emulation",0d,0a
-        db "   -xf       Switch full 16K of Interface I ROM",0d,0a
         db "   -xr F     Use file F as standard Spectrum rom",0d,0a
-        db "Joystick options:",0d,0a
-        db "   -kk       Do not look for analog or Zandbergen joystick",0d,0a
-        db "   -kz       Use digital Zandbergen joystick",0d,0a
-        db "   -jk       Emulate Kempston joystick (instead of Cursor)",0d,0a
-        db "   -j1, -j2  Emulate Sinclair joysticks 1 or 2",0d,0a
-        db "   -xs       Default to shifted cursor keys (NumLock) in '128 mode",0d,0a
-        db "Microdrive and tape options:",0d,0a
-        db "   -m N F    Insert cartridgefile F{.MDR} in microdrive N",0d,0a
-        db "   -xm D     Select default directory D for .MDR files",0d,0a
-        db "   -bN       Use LPTn for tape I/O",0d,0a
-        db "   -td D     Select directory D for multiple .TAP file mode",0d,0a
-        db "   -ts D     Specify default directory for single .TAP file mode",0d,0a,'$'
-helpmes3:
-        db "   The next options all automatically select Single .TAP File mode:",0d,0a
-        db "   -ti F     Use F{.TAP} as tape input",0d,0a
-        db "   -to F     Use F{.TAP} as tape output (if exists, append)",0d,0a
-        db "   -tm       Mirror tape input to disk (Do also specify output file!)",0d,0a
-        db "   -te       Mirror tape input to disk in EXACT mode",0d,0a
-;        db "   -tw       Don't wrap load pointer of tapefile at end",0d,0a,'$'
         db "RS232 redirection options:",0d,0a
         db "   -aN       Redirect Spectrum RS232 output to LPTn",0d,0a
         db "   -oN       Redirect Spectrum RS232 output to COMn",0d,0a
         db "   -uF       Redirect file F to Spectrum RS232 input",0d,0a
         db "   -iN       Redirect COMn to Spectrum RS232 input",0d,0a
-        db "   -wF       Redirect Spectrum RS232 output to file F",0d,0a
-        db "Sound options:",0d,0a
+        db "   -wF       Redirect Spectrum RS232 output to file F",0d,0a,'$'
+helpmes3:
+        db "Sound switches:",0d,0a
         db "   -g        No sound",0d,0a
-        db "   -xa       Do not use Adlib for 128 sound",0d,0a
-        db "   -xc       Use CM/S chips on SoundBlaster for noise",0d,0a
-        db "   -xi       Do not use internal PC speaker for 128 sound",0d,0a
+        db "   -xa       Do NOT use AdLib for 128 sound  (use internal speaker instead)",0d,0a
+        db "   -xc       Use SoundBlaster CMS chips for noise (specify base addr if <> 220)",0d,0a
+        db "   -xi       Do NOT use internal PC speaker for '128 sound",0d,0a
+        db "Joystick options:",0d,0a
+        db "   -km       Use MS Mouse to control Spectrum joystick",0d,0a
+        db "   -ka       Emulate Spectrum AMS mouse interface controlled by MS Mouse",0d,0a
+        db "   -kz       Use digital Zandbergen joystick",0d,0a
+        db "   -kk       Do not look for analogue or Zandbergen joystick",0d,0a
+        db "   -k1       Do not use 2nd analogue joystick as Sinclair 1 (1,2,3,4,5)",0d,0a
+        db "   -k2       Use 2nd joystick as Sinclair 1 always",0d,0a
+        db "   -jc       Emulate Cursor joystick (default)",0d,0a
+        db "   -jk       Emulate Kempston joystick",0d,0a
+        db "   -j2       Emulate Sinclair joystick 2 (keys 6,7,8,9 and 0)",0d,0a
+        db "   -ju<lf><rt><up><dn><fire>  Userdef joyst. ([=shft,]=symshft,/=enter,\=space)",0d,0a
+        db "   -xs       Default to shifted cursor keys (NumLock) in '128 mode",0d,0a,'$'
+helpmes4:
+        db "Tape and Microdrive options:",0d,0a
+        db "   -bN       Use LPTn for tape I/O",0d,0a
+        db "   -xo       Use SoundBlaster's A/D Converter for tape input",0d,0a
+        db "   -xq adr   Set base IO address for SoundBlaster (for -xo, -xc, default 0220)",0d,0a
+        db "   -xn rate  Set max sample rate for SoundBlaster tape input (default 10 kHz)",0d,0a
+        db "   -tv F     Play .VOC file F to 'ear' input",0d,0a
+        db "   -m N F    Insert cartridge file F{.MDR} into microdrive N",0d,0a
+        db "   -xm D     Select default directory D for .MDR files",0d,0a
+        db "   -td D     Select directory D for Multiple .TAP File mode",0d,0a
+        db "   -ts D     Specify default directory for Single .TAP File mode",0d,0a
+        db "   -tx       Do not display tape info window when loading or saving",0d,0a
+        db "   -tp       Pause after loading .TAP block",0d,0a
+        db "   The following switches all automatically select Single .TAP File mode:",0d,0a
+        db "   -ti F     Use F{.TAP} as tape input",0d,0a
+        db "   -to F     Use F{.TAP} as tape output (if exists, append)",0d,0a
+        db "   -tm       Mirror tape input to disk (Do also specify output file!)",0d,0a
+        db "   -te       Mirror tape input to disk in EXACT mode",0d,0a
+        db "   -tw       Don't wrap load pointer of tapefile at end",0d,0a,'$'
+helpmes5:
         db "Miscellaneous switches:",0d,0a
-        db "   -xe       Do not use expanded memory",0d,0a
+        db "   -xl N     Select LPTn for ZX-Printer output",0d,0a
+        db "   -xj       'Off-line=wait' instead of 'Off-line=No ZX Printer'",0d,0a
+        db "   -0e       Epson printer (for ZX PRINTER and M.G.T. type)",0d,0a
+        db "   -0h       HP PCL printer (for ZX PRINTER and M.G.T. type)",0d,0a
+        db "   -0f N     Issue a Form Feed every N ZX Prtr lines on HP PCL printer",0d,0a
+        db "   -0i       Disable Disciple interrupt",0d,0a
+        db "   -xp D     Select default directory D for .Z80 snapshot files",0d,0a
         db "   -xz       Assume AZERTY keyboard layout",0d,0a
+        db "   -xt       Use as little memory as possible with full functionality",0d,0a
+        db "   -xu       Use as little memory as possible; disable Hi Color Res emulation",0d,0a
+        db "   -00       Do not show intro screen, and don't pause at startup",0d,0a
+        db "   -xe       Do not use expanded memory",0d,0a
+        db "   -xg       Log all outs to FE in OUT log file, not only ones that make noise",0d,0a
+        db "   -xy       Dump trace of program in .OUT file",0d,0a
+        db "   -0m F     Build map of opcode locations in file F; see docs for details!",0d,0a
         db "   -xw       Run in Windows compatibility mode",0d,0a
-;        db "   -xd####   Generate an 8086 INT 3 at Z80 hex address ####",0d,0a
-        db "   -?        This help page",0d,0a,0d,0a,'$'
+        db "   -kxABCD   Press key #CD for scancode #AB.",0d,0a
+        db "   -xd####   Generate an 8086 INT 3 at Z80 hex address ####",0d,0a
+        db "   -xf       Switch full 16K of Interface I ROM",0d,0a
+        db "   -?        This help page",0d,0a,'$'
 keymes1:
         db "Press a key...",0d,'$'
 keymes2:
         db "              ",0d,'$'
 
+
+        nop

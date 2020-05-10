@@ -1,12 +1,12 @@
 /*
     This file is part of the registered Spectrum emulator package 'Z80'
-    version 2.01, and may not be distributed.  You may use this source for
+    version 3.04, and may not be distributed.  You may use this source for
     other PC based Spectrum or Z80 emulators only after permission.  It is
     however permitted to use this source file or parts thereof for Spectrum
     or Z80 emulators on non-PC based machines, provided that the source is
     acknowledged.
 
-                                                       Gerton Lunter, 3/5/93
+                                                     Gerton Lunter, 10/8/96
 */
 
 /*
@@ -22,6 +22,7 @@
  Ian Cull. 9/11/92.
  Modifications to read 720K 80 track double density 5.25'' diskettes,
  Hugh McLenaghan, 31/3/93
+ Made obsolete by emulation of the DISCiPLE and +D also by Hugh McLenaghan
 */
 
 
@@ -158,7 +159,7 @@ void getmbyte(void)
 void clr()
 {
     clrscr();
-    printf ("DISCIPLE - disk read/conversion utility - (c) 1993 G.A. Lunter - version 2.01a\n");
+    printf ("DISCIPLE - disk read/conversion utility - (c) 1994 G.A. Lunter - version 3.0\n");
     printf ("           Bug fixes and enhancements by Ian Cull and Hugh McLenaghan.\n");
     printf ("           This program may not be distributed.\n");
     printf ("           It is part of the registered Spectrum Emulator package.\n\n");
@@ -333,7 +334,7 @@ FILE *bestand;
         case 1:
         case 2:
         case 3:
-        case 4: ftype='3';break;      /* normal files */
+        case 4: ftype='3';break;            /* normal files */
         case 5: ftype='4';break;            /* 48k snap */
         case 7: ftype='5';break;            /* screen snap, to .SCR */
         case 9: ftype=0;break;              /* 128k snap */
@@ -366,17 +367,17 @@ FILE *bestand;
       secbuf[secpointer+11]=secbuf[secpointer+212];
       secbuf[secpointer+12]=secbuf[secpointer+213];
       switch (--secbuf[secpointer]) {
-        case 0:
+      case 0:
             secbuf[secpointer+13]=secbuf[secpointer+218];
             secbuf[secpointer+14]=secbuf[secpointer+219];
             secbuf[secpointer+15]=secbuf[secpointer+216];
             secbuf[secpointer+16]=secbuf[secpointer+217];
             break;
-        case 1:
-        case 2:
+      case 1:
+      case 2:
             secbuf[secpointer+14]=secbuf[secpointer+216];
             break;
-        default:
+      default:
             secbuf[secpointer+13]=secbuf[secpointer+214];
             secbuf[secpointer+14]=secbuf[secpointer+215];
             secbuf[secpointer]=3;
@@ -465,7 +466,7 @@ FILE *bestand;
             /* IANC2: R register bit 7 fetched from correct place */
             specbyte(stkp+1,byte)
             byte=32+((byte&128)>>7);
-            fwrite(&byte,1,1,bestand);                      /* Flagbyte */
+            fwrite(&byte,1,1,bestand);                      /* Flag byte */
             break;
         case 4:
             stkp+=6;
@@ -622,7 +623,6 @@ void main(int argc, char *argv[])
     } else {
         printf("Specify A: or B: as disciple/+D disk drive.\n");
         printf("Use A:40 or B:40 to read 40 track disks (default is 80).\n");
-        printf("Insert your disciple/+D diskette into the drive before starting this program.\n");
         exit(1);
     }
     do {
@@ -703,11 +703,11 @@ void main(int argc, char *argv[])
                     goto keys;
             }
             printf ("DISCiPLE/+D file: \"%.10s\"\n",secbuf+(nr%2)*256+1);
-            if (ch=='3') {
+            if ((ch=='3')&&(secbuf[(nr%2)*256]!=7)) {
                printf ("Enter the name of the targetfile (.TAP implied):  ");
                scanf("%s",name);
                addextension(name,".TAP");
-            } else if (ch=='5') {
+            } else if ((ch=='5')||(ch=='3')) {
               printf ("Enter the name of the .SCR file for output:  ");
               scanf("%s",name);
               addextension(name,".SCR");
@@ -739,4 +739,3 @@ void main(int argc, char *argv[])
     } while (1);
 }
 
-

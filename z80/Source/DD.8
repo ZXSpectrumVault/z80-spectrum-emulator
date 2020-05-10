@@ -1,13 +1,3 @@
-;
-;   This file is part of the registered Spectrum emulator package 'Z80'
-;   version 2.01, and may not be distributed.  You may use this source for
-;   other PC based Spectrum or Z80 emulators only after permission.  It is
-;   however permitted to use this source file or parts thereof for Spectrum
-;   or Z80 emulators on non-PC based machines, provided that the source is
-;   acknowledged.
-;
-;                                                       Gerton Lunter, 3/5/93
-
 EMULATOR SEGMENT BYTE PUBLIC
 
 #if !i00                        ;If this file not has been assembled before, ...
@@ -17,6 +7,14 @@ dd_dummy macro
         xor bl,bl
         jmp bx
 #er
+#em
+ndx macro
+        xchg ax,bx
+        mov al,[di]
+        inc di
+        cbw
+        add ax,es:#1
+        xchg ax,bx
 #em
 i00     equ 04d                 ;offset of IX instructions
 i11     equ 031                 ;offset of variable RIX (should not be moved!)
@@ -29,17 +27,25 @@ i11     equ 02F                 ;offset of variable RIY
 
         ORG (009 SHL 8)+i00
         INC DI
-        AND AH,0C4
+        AND AH,0fc
         ADD ES:w[offset i11],CX           ;ADD IX,BC
-        ADC AH,0
+        adc ah,0
+;        xor ah,dh
+;        and ah,0d7
+;        xor ah,dh
+;        mov es:temp_f,ah
         jx 15
 
 
         ORG (019 SHL 8)+i00
         INC DI
-        AND AH,0C4
+        AND AH,0fc
         ADD ES:w[offset i11],SI           ;ADD IX,DE
-        ADC AH,0
+        adc ah,0
+;        xor ah,dh
+;        and ah,0d7
+;        xor ah,dh
+;        mov es:temp_f,ah
         jx 15
 
 
@@ -54,7 +60,7 @@ i11     equ 02F                 ;offset of variable RIY
 
         ORG (022 SHL 8)+i00
         INC DI
-        MOV BX,[DI]             ;LD (NN),IX
+        MOV BX,[DI]                     ;LD (NN),IX
         PUSH DX
         MOV DX,ES:w[offset i11]
         MEMP BX,DX
@@ -98,11 +104,15 @@ i11     equ 02F                 ;offset of variable RIY
 
         ORG (029 SHL 8)+i00
         INC DI
-        AND AH,0C4
+        AND AH,0fc
         MOV BX,ES:w[offset i11]
         ADD BX,BX
         MOV ES:w[offset i11],BX      ;ADD IX,IX
-        ADC AH,0
+        adc ah,0
+;        xor ah,dh
+;        and ah,0d7
+;        xor ah,dh
+;        mov es:temp_f,ah
         jx 15
 
 
@@ -151,8 +161,8 @@ i11     equ 02F                 ;offset of variable RIY
         ORG (034 SHL 8)+i00
         INC DI                  ;INC (IX)
         ndx w[offset i11]
-        test bh,0c0
-        jz >l1
+        call testbx                     ; ***** HMc *****
+        jnc >l1                         ; ***** HMc *****
         SAHF
         INC B[BX]
         LAHF
@@ -164,8 +174,8 @@ l1:     jmp noinc_ixiy
         ORG (035 SHL 8)+i00
         INC DI
         ndx w[offset i11]                 ;DEC (IX)
-        test bh,0c0
-        jz >l1
+        call testbx                       ; ***** HMc *****
+        jnc >l1                           ; ***** HMc *****
         SAHF
         DEC B[BX]
         LAHF
@@ -187,9 +197,13 @@ l1:     jmp nodec_ixiy
 
         ORG (039 SHL 8)+i00
         INC DI
-        AND AH,0C4
+        AND AH,0fc
         ADD ES:w[offset i11],BP           ;ADD IX,SP
-        ADC AH,0
+        adc ah,0
+;        xor ah,dh
+;        and ah,0d7
+;        xor ah,dh
+;        mov es:temp_f,ah
         jx 15
 
 
@@ -270,7 +284,7 @@ l1:     jmp nodec_ixiy
 
         ORG (05D SHL 8)+i00
         INC DI
-        MOV BL,ES:B[i11]  ;LD E,IXL
+        MOV BL,ES:B[i11]        ;LD E,IXL
         XCHG DX,SI
         MOV DL,BL
         XCHG DX,SI
@@ -599,6 +613,12 @@ l1:     jmp nodec_ixiy
         SAHF
         AND AL,ES:B[i11+1]
         LAHF
+        or ah,010
+        and ah,0fd
+        xor ah,al
+        and ah,0d7
+        xor ah,al
+        mov es:temp_f,ah
         jx 8
 
 
@@ -607,6 +627,12 @@ l1:     jmp nodec_ixiy
         SAHF
         AND AL,ES:B[i11]
         LAHF
+        or ah,010
+        and ah,0fd
+        xor ah,al
+        and ah,0d7
+        xor ah,al
+        mov es:temp_f,ah
         jx 8
 
 
@@ -616,6 +642,12 @@ l1:     jmp nodec_ixiy
         SAHF
         AND AL,[BX]
         LAHF
+        or ah,010
+        and ah,0fd
+        xor ah,al
+        and ah,0d7
+        xor ah,al
+        mov es:temp_f,ah
         jx 19
 
 
@@ -624,6 +656,7 @@ l1:     jmp nodec_ixiy
         SAHF
         XOR AL,ES:B[i11+1]
         LAHF
+        and ah,0ed
         jx 8
 
 
@@ -633,6 +666,7 @@ l1:     jmp nodec_ixiy
         SAHF
         XOR AL,ES:B[i11]
         LAHF
+        and ah,0ed
         jx 8
 
 
@@ -643,6 +677,7 @@ l1:     jmp nodec_ixiy
         SAHF
         XOR AL,[BX]
         LAHF
+        and ah,0ed
         jx 19
 
 
@@ -652,6 +687,7 @@ l1:     jmp nodec_ixiy
         SAHF
         OR AL,ES:B[i11+1]
         LAHF
+        and ah,0ed
         jx 8
 
 
@@ -661,6 +697,7 @@ l1:     jmp nodec_ixiy
         SAHF
         OR AL,ES:B[i11]
         LAHF
+        and ah,0ed
         jx 8
 
 
@@ -671,6 +708,7 @@ l1:     jmp nodec_ixiy
         SAHF
         OR AL,[BX]
         LAHF
+        and ah,0ed
         jx 19
 
 
@@ -712,7 +750,7 @@ l1:     jmp nodec_ixiy
         INC DI
         XOR BH,BH
         SHL BX,1
-        PUSH ES:[BX+DDCB_TABLE]
+        PUSH ES:[BX+XDCB_TABLE]
         XCHG AX,BX
         MOV AL,[DI-2]
         CBW
@@ -732,8 +770,8 @@ l1:     jmp nodec_ixiy
 
         ORG (0E3 SHL 8)+i00
         INC DI
-        test bp,0c000
-        jz >l1
+        call testbp                     ; ***** HMc *****
+        jnc >l1                         ; ***** HMc *****
         MOV BX,ES:w[offset i11]
         XCHG DS:[BP],BX         ;EX (SP),IX
 l2:     MOV ES:w[offset i11],BX
@@ -796,4 +834,3 @@ l1:     mov bx,ds:[bp]
 
 
 EMULATOR ENDS
-

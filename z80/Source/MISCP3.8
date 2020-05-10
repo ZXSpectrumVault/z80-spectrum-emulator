@@ -1,14 +1,58 @@
-;
-;   This file is part of the registered Spectrum emulator package 'Z80'
-;   version 2.01, and may not be distributed.  You may use this source for
-;   other PC based Spectrum or Z80 emulators only after permission.  It is
-;   however permitted to use this source file or parts thereof for Spectrum
-;   or Z80 emulators on non-PC based machines, provided that the source is
-;   acknowledged.
-;
-;                                                       Gerton Lunter, 3/5/93
-
 startup segment para public
+
+
+
+
+
+haalpromille:
+        xor bx,bx
+        cld
+hp0:    lodsb
+        cmp al,32
+        jz hp0
+        cmp al,9
+        jz hp0
+        dec si
+hp1:    lodsb
+        cmp al,'.'
+        jz hp_decpt
+        sub al,'0'
+        jc hp_endnum
+        cmp al,9
+        ja hp_endnum
+        xchg ax,bx
+        mov cx,10
+        mul cx
+        xor bh,bh
+        add bx,ax
+        cmp bx,3000         ;allow up to 3000 % (timer will go up to appr. 2500 %)
+        ja hp_toohigh
+        jmp hp1
+hp_decpt:
+        lodsb
+        sub al,'0'
+        jb hp_toohigh
+        cmp al,9
+        ja hp_toohigh
+        inc si
+        jmp hp_decimaal
+hp_endnum:
+        xor al,al
+hp_decimaal:
+        xchg ax,bx
+        mov cx,10
+        mul cx
+        xor bh,bh
+        add ax,bx
+        ret
+hp_toohigh:
+        mov ax,30000
+        ret
+
+
+
+
+
 
 ; Routines om het spectrum segment in en uit te pakken
 
@@ -128,18 +172,18 @@ find_end2:
         dec di
 find_end:
         repnz scasb
-        jnz not_found
+        jnz not_found_d
         dec cx
-        jcxz not_found
+        jcxz not_found_d
         mov al,0ed
         scasb
         jnz find_end2
         dec cx
-        jcxz not_found
+        jcxz not_found_d
         scasb
         jnz find_end3
         dec cx
-        jcxz not_found
+        jcxz not_found_d
         xor al,al
         scasb
         jnz find_end4
@@ -165,6 +209,9 @@ descr_end:
         pop bx
         pop ax
         ret
+not_found_d:
+        stc
+        jmp descr_end
 
 ;In: cld, es:di wijst naar begin outputbuffer, es:ffff is einde, ds:si
 ;    wijst naar begin inputbuffer, es:ffff is einde, cx is aantal bytes.
@@ -225,6 +272,12 @@ CRIT_ERR:
 TESTCODE:
         DB 018,0,09F,02B,0FE,0,078,02A,0,0,0E5,0E1,0ED,06B,0,0
 
+;Returns in registers values that correspond to the emulator speed,
+; and fills in variables bxcst, cxloop, inloop, inloop2.
+;In win comp mode, only the registers and bxcst are filled in with
+; measured values; the others get defaults (and should never be used)
+;The calling routine introduces fudge factors for Windows, otherwise
+; the emulator would run far too slow.
 GET_SPD:CLD
         mov ax,cs:specseg
         MOV ES,AX               ;ES WIJST NAAR SPECTRUM SEGMENT
@@ -258,17 +311,14 @@ CR_LOOP:MOV SI,OFFSET TESTCODE
         MOV CS:SP2,SP
         mov al,0fe              ;turn off all channels except timer
         out 021,al
-        MOV AX,SEG EMULATE
-        PUSH AX
-        MOV AX,OFFSET EMULATE
-        PUSH AX
         CLI
         MOV ES:W[32],TIMER2
         MOV ES:W[34],CS
         MOV AX,CS
         MOV ES,AX
         STI
-        RETF
+        jmp far EMULATE                 ; ***** HMc *****
+
 TIMER2: PUSH AX
         MOV AL,020
         OUT 020,AL
@@ -278,9 +328,9 @@ TIMER2: PUSH AX
         MOV CX,0                ;ZET BC (WEER) OP NUL
         MOV SI,DI               ;BEWAAR HUIDIGE WAARDE PC
         IRET
-NO_FIRST_TIME:
+NO_FIRST_TIME:                  ;now DI,SI and CX are important (at first entry)
         MOV SP,CS:SP2           ;RESTORE STACK-POINTER
-        STI
+        STI                     ;After tim3rdtime CX is moved to BX
         inc byte cs:timmod
         cmp byte cs:timmod,1
         jz tim2ndtime
@@ -288,16 +338,27 @@ NO_FIRST_TIME:
         jz tim3rdtime
         cmp byte cs:timmod,3
         if z jmp tim4thtime
+        cmp byte cs:timmod,4
+        if z jmp tim5thtime
         NEG CX
         SHR BP,1
         RCR CX,1
         SHR BP,1
         RCR CX,1
-        MOV CS:INLOOP,CX
+        MOV CS:INLOOP2,CX
         mov dx,bx
         pop ax
         out 021,al              ;reset all channels to normal values
         JMP GET_VECTORS
+
+get_spd_getout:                 ;(v3.04)
+        mov dx,cx               ;Move data of first round to expected register
+        mov cs:cxloop,3574      ;Some default values, just in case.  Should
+        mov cs:inloop,1729      ; never be referred to actually
+        mov cs:inloop2,1729
+        pop ax
+        out 021,al
+        jmp get_vectors
 
 tim2ndtime:
         xor bx,bx
@@ -324,13 +385,15 @@ TIM3rdTIME:
         test ah
         if nz mov bx,0ffff
         mov cs:bxcst,bx         ;(nops/512)
+        cmp cs:winkey,0         ;Running in a Windows DOS box? (v3.04)
+        jne get_spd_getout
         MOV BX,CX               ;still holding the result from previous round
         XOR CX,CX
         XOR AX,AX
         NOP
         nop
         nop
-        ORG scrunge+(($-scrunge) AND 0FFFC)
+        ORG label_at_para+(($-label_at_para) AND 0FFFC)
 TIMLOOP:NOP
         LOOP TIMLOOP
         INC AX
@@ -349,22 +412,49 @@ tim4thtime:
         RCR CX,1
         MOV CS:CXLOOP,CX
         XOR CX,CX
-        MOV DX,0378
         XOR BP,BP
         NOP
         nop
         nop
-        ORG scrunge+(($-scrunge) AND 0FFFC)
+        ORG label_at_para+(($-label_at_para) AND 0FFFC)
 LDSAMPLETIMER:
         test byte cs:keyscan,0
         jNz LDSAMPLETIMER
-        in al,dx
+;        in al,dx
+        call getsample              ;normal version since 'blaster'=0
         xor al,AL
         add al,al
         jc LDSAMPLETIMER
         loop ldsampleTIMER
         INC BP
         LOOP LDSAMPLETIMER
+
+
+tim5thtime:
+        NEG CX
+        SHR BP,1
+        RCR CX,1
+        SHR BP,1
+        RCR CX,1
+        MOV CS:INLOOP,CX
+        XOR CX,CX
+        XOR BP,BP
+        NOP
+        nop
+        nop
+        ORG label_at_para+(($-label_at_para) AND 0FFFC)
+LDSAMPLETIMER2:
+        test byte cs:keyscan,0
+        jNz LDSAMPLETIMER2
+;        in al,dx
+        call getsample0             ;soundblaster version
+        xor al,AL
+        add al,al
+        jc LDSAMPLETIMER2
+        loop ldsampleTIMER2
+        INC BP
+        LOOP LDSAMPLETIMER2
+
 
 
 
@@ -392,19 +482,759 @@ NIETNUL:MOV CH,1
 
 
 
-IMMEDIATE_NMI:                  ;This is the routine associated with -sn.
-        CMP BYTE CS:IMMNMI,0    ;Just before the emulator starts, it
-        JZ RET                  ;generates an NMI.
-        MOV BYTE CS:IMMNMI,0
-        PUSH AX
-        CALL FAR RESET_ALL_FAR
-        POP AX
-        DEC BP
-        DEC BP
-        TEST BP,0C000
-        IF NZ MOV DS:[BP],DI
-        MOV DI,066
+
+;OUT_BC:
+SI_NB_NS:
+        SAHF
+        MOV AH,BH
+        MOV BX,CX
+;OUT_CONTINUE:
+        PUSHF
+        TEST BL,1
+        IF NZ JMP SI_NB_NS+0100         ;NO_SPEAKER
+        call (68-16)*256+si_nb_ns       ;overscan0
+        MOV BX,AX
+        IN AL,061
+        XCHG AL,AH
+        MOV ES:BYTE NEWBOR,AL
+        AND AX,0FD10
+        ADD AL,-16
+        SBB AL,AL
+        AND AL,2
+        OR AL,AH
+        OUT 061,AL
+        MOV AX,BX
+        POPF
+        LAHF
         RET
+
+
+;OUT_BC:
+SI_NB_S:
+        SAHF
+        MOV AH,BH
+        MOV BX,CX
+;OUT_CONTINUE:
+        PUSHF
+        TEST BL,1
+        IF NZ JMP SI_NB_NS+0100         ;NO_SPEAKER
+        call (68-16)*256+si_nb_s        ;overscan0
+        MOV ES:BYTE NEWBOR,AH
+        POPF
+        LAHF
+        RET
+
+
+;out_bc
+si_outlog:
+        sahf
+        mov ah,bh
+        mov bx,cx
+;out_continue:
+        pushf
+        jmp (85-16)*256+si_outlog
+
+
+in_fast_0:
+        inc di
+        cmp b[di],0fe
+        jne >l1
+        inc di
+        mov bx,dx
+        mov dx,0
+tapeioadr0 equ $-2
+        in al,dx
+        shl al,1
+        mov al,191
+;previous_in equ $-1
+        jnc not_yet_ready
+        jmp 81*256+183+37*256+in_fast_0     ;0b7+(81 shl 8), see ed.8
+not_yet_ready:
+        mov dx,bx
+        xor bl,bl
+        mov bh,[di]
+        jmp bx
+        nop
+        nop
+        nop
+        nop
+        nop
+l1:     jmp 67*256+183+37*256+in_fast_0        ;in_slow (183=0b7, 37=-219)
+len0    equ $-in_fast_0
+
+
+in_fast_1:
+        inc di
+        cmp b[di],0fe
+        jne >l1
+        inc di
+        mov bx,dx
+        mov dx,0
+tapeioadr equ $-2
+        mov al,191
+        mov dx,bx
+        xor bl,bl
+        mov bh,[di]
+        jmp bx
+        nop
+        nop
+        nop
+        nop
+        nop
+l1:     jmp 67*256+183+37*256+in_fast_1        ;in_slow (183=0b7, 37=-219)
+len1    equ $-in_fast_1
+
+
+in_fast_2:
+        inc di
+        cmp b[di],0fe
+        jne >l1
+        inc di
+        mov bh,al
+        mov bl,0fe
+        call in_fast_2+21*256+2+183+37*256    ;in_continue
+        mov al,bh
+        xor bl,bl
+        mov bh,[di]
+        jmp bx
+        nop
+        nop
+        nop
+        nop
+        nop
+l1:     jmp 67*256+183+37*256+in_fast_2        ;in_slow (183=0b7, 37=-219)
+len2    equ $-in_fast_2
+
+
+djnznormal:
+        INC DI
+        DEC CH                  ;DJNZ E
+        JZ >L1
+        XCHG AX,BX
+        MOV AL,[DI]
+        CBW
+        ADD DI,AX
+        XCHG AX,BX
+        XOR BL,BL
+L1:     INC DI
+        MOV BH,[DI]
+        JMP BX
+        NOP                     ;RUIMTE VOOR:
+        NOP                     ; INC ES:B[RR]
+        NOP
+        NOP
+        NOP
+djnzlen1 equ $-djnznormal
+
+
+djnzslow:                       ;This code is used in Real mode to make sure
+        INC DI                  ; the djnz has the right timing, important for
+        DEC CH                  ; music and saving.
+        JZ >L1
+        mov bx,ax
+        MOV AL,[DI]
+        CBW
+        ADD DI,AX
+        mov ax,2
+l0:     dec ax
+        jne l0
+        mov ax,bx
+L1:     INC DI
+        XOR BL,BL
+        MOV BH,[DI]
+        JMP BX
+        NOP                     ;RUIMTE VOOR:
+        NOP                     ; INC ES:B[RR]
+        NOP
+        NOP
+        NOP
+djnzlen2        equ $-djnzslow
+
+
+LDIR1:
+        db 0e8                          ; call ***** HMc ***** 
+LDIR1A: dw testsioli1                   ; testsi offset ***** HMc *****
+LDIR1c: if nc jmp LDIR1+0100            ; ***** HMc *****
+        DEC CX
+        ADD SI,CX
+        SUB SI,CX
+        INC CX
+        IF C JMP LDIR1+0100
+        PUSH ES
+        PUSH DS
+        POP ES
+        XCHG DI,DX
+        XCHG SI,DI
+        CLD
+        REP MOVSB
+        POP ES
+        XCHG SI,DI
+        XCHG DI,DX
+        AND AH,011101001XB
+        XOR BL,BL
+        MOV BH,[DI]
+        JMP BX
+        db 5 dup 090
+LDIR1_LEN       EQU $-LDIR1
+
+LDIR2:
+        XCHG BX,DX
+        PUSH AX
+        MOV AH,[BX]
+        db 0e8                          ; call ***** HMc ***** 
+LDIR2A: dw testsioli2                   ; (testsi address) ***** HMc *****
+LDIR2C: jnc LDIRNXS                     ; ***** HMc *****
+        MOV [SI],AH                     ; ***** HMc MOD *****
+LDIRNXS:INC BX
+        INC SI
+        POP AX
+        XCHG DX,BX
+        XOR BL,BL
+        DEC CX
+        JZ SHORT LDIR_END
+        DEC DI
+        DEC DI
+        OR AH,4
+        MOV BH,[DI]
+        JMP BX
+        db 5 dup 090
+LDIR_END:
+        AND AH,011101001XB
+        MOV BH,[DI]
+        JMP BX
+        db 5 dup 090
+LDIR2_LEN        EQU $-LDIR2
+
+LDDR1:
+        db 0e8                          ; call ***** HMc *****
+LDDR1A: dw testsiold1                   ; testsi offset ***** HMc *****
+LDDR1C: if nc jmp LDDR1+0100            ; ***** HMc *****
+        PUSH CX
+        ADD CX,03FFF
+        SUB SI,CX
+        ADD SI,CX
+        POP CX
+        IF C JMP LDDR1+0100
+        PUSH ES
+        PUSH DS
+        POP ES
+        XCHG DI,DX
+        XCHG SI,DI
+        STD
+        REP MOVSB
+        POP ES
+        XCHG SI,DI
+        XCHG DI,DX
+        AND AH,011101001XB
+        XOR BL,BL
+        MOV BH,[DI]
+        JMP BX
+        db 5 dup 090
+LDDR1_LEN        EQU $-LDDR1
+
+LDDR2:
+        XCHG BX,DX
+        PUSH AX
+        MOV AH,[BX]
+        db 0e8                          ; call ***** HMc ***** 
+LDDR2A: dw testsiold2                   ; testsi offset ***** HMc *****
+LDDR2C: jnc lddrnxs                     ; ***** HMc *****
+        MOV [SI],AH                     ; ***** HMc *****
+LDDRNXS:DEC BX                          ; ***** HMc MOD *****
+        DEC SI
+        POP AX
+        XCHG DX,BX
+        XOR BL,BL
+        DEC CX
+        JZ LDDR_END
+        DEC DI
+        DEC DI
+        OR AH,4
+        MOV BH,[DI]
+        JMP BX
+        db 5 dup 090
+LDDR_END:
+        AND AH,011101001XB
+        MOV BH,[DI]
+        JMP BX
+        db 5 dup 090
+LDDR2_LEN       EQU $-LDDR2
+
+
+
+
+
+SILENCE_INST:                           ;OOK INSTALLATIE ISSUE-2
+        PUSH AX                         ;en installeert snelle IN A,(FE)
+        PUSH SI                         ;en installeert trage DJNZ
+        PUSH DI
+        PUSH ES
+        PUSH DS
+        MOV AX,SEG EMULATE
+        MOV DS,AX
+        call install_fastin
+        MOV AL,3
+        MOV SI,OFFSET SI_NB_NS
+        CMP byte CS:SILENCE,0
+        JZ INSTALL_SIL
+        MOV SI,OFFSET SI_NB_S
+        MOV AL,0
+INSTALL_SIL:
+        MOV cs:B[SILENT2],AL            ;in mdrv.8
+        cmp byte cs:_outlog,0
+        if ne mov si,offset si_outlog
+        PUSH DS
+        POP ES
+        PUSH CS
+        POP DS
+        MOV DI,OFFSET OUT_BC
+        MOV CX,73
+        CLD
+        REP MOVSB
+        MOV SI,DJNZNORMAL
+        MOV CX,DJNZLEN1
+        CMP byte CS:MODFLG,0
+        JZ INSTALL_NORMALMODE
+        MOV SI,DJNZSLOW
+        MOV CX,DJNZLEN2
+INSTALL_NORMALMODE:
+        MOV DI,16*256
+        mov ax,13                       ;13 T states, no nops offset
+        call movecommand
+        MOV AL,191
+        TEST BYTE CS:ISSUE2
+        IF NZ MOV AL,0FF
+        xor al,cs:byte issue2default
+        MOV ES:BYTE VERSIE_ADRES,AL
+        mov es:byte versie_adres2,al
+        POP DS
+        POP ES
+        POP DI
+        POP SI
+        POP AX
+        RET
+
+
+
+install_fastin:
+        push es
+        push ds
+        push di
+        push si
+        push cx
+        push ax
+        mov ax,cs:tapeio
+        mov cs:w[offset tapeioadr],ax
+        mov ax,cs:baseadr
+        add ax,14                       ;data_avail (2 below is write data/status,
+        mov cs:w[offset tapeioadr0],ax  ; 2 more down is read data)
+        mov ax,seg emulate       
+        mov es,ax
+        push cs
+        pop ds
+        mov di,219*256                  ;IN A,(n)
+        mov ax,0200c            ;32 nops offset, 12 T states (NOT 11!)
+        mov si,offset in_fast_1 ;Reads from LPT
+        mov cx,len1
+        cmp byte cs:_blaster,0
+        je i_fi_noblaster
+        mov si,offset in_fast_0
+        mov cx,len0
+i_fi_noblaster:
+        cmp byte cs:_vocplay,0  ;Don't IN from LPT port when playing voc files
+        jne i_fi_normal
+        cmp byte cs:modflg,0
+        jne i_fi_realmod
+i_fi_normal:
+        mov ax,0800c            ;64 nops offset, 12 T states (NOT 11!)
+        mov si,offset in_fast_2
+        mov cx,len2
+i_fi_realmod:
+        call movecommand
+        pop ax
+        pop cx
+        pop si
+        pop di
+        pop ds
+        pop es
+        ret
+
+
+
+soffset equ 0ab
+;
+;The slowdowncode is put at soffset + 204..223
+;       mov bh,[di]     8a 3d
+;       jmp bx          ff e3
+;       jmp nn          e9 displacement (rel. to PC just after the jmp)
+;       call nn         e8 displacement
+;       es:             26
+;       inc b[]         fe 06 address
+;       cmp di,[]       3b 3e address
+;       cmp di,nn       81 ff number
+;       cmp b[],byte    80 3e address byte
+;       cmp w[],byte    83 3e address byte
+;       jne n           75 displacement
+;       jc n            72 displacement
+;       js n            78 displacement
+;       nop             90
+;       mov bx,nn       bb number
+;       dec bx          4b
+;
+RREG_INST:
+        push ds                     ;start with 3T instruction.  This is
+        mov bx,offset slowmod-2     ;because movecommand can decide that
+        mov di,(103 shl 8)+soffset  ;the instruction needs NO extra
+        cld                         ;delay.
+        mov es,seg emulate
+rreg_1loop:
+        push bx
+        push di
+        mov ax,cs:[bx]
+        call rreg_makeblock
+        pop di
+        pop bx
+        inc bx
+        inc bx
+        add di,256
+        cmp di,124*256
+        jb rreg_1loop
+        mov ds,seg jx_table
+        mov si,offset jx_table
+rreg_2loop:
+        lodsw
+        test ax
+        jz jxtable_done
+        mov di,ax
+        lodsb
+        call slowdown_opcode
+        jmp rreg_2loop
+jxtable_done:
+        pop ds
+        ret
+
+slowdown_opcode:                ;di->jxf; al=# T states
+        mov bx,offset slowmod-8
+        xor ah,ah
+        add bx,ax
+        add bx,ax
+        mov bx,cs:[bx]
+        test bx
+        jnz so_slow
+        test byte cs:debugflg,0ff
+        jne so_slow
+        test byte cs:mapflg,0ff
+        jne so_slow
+        test byte cs:countt
+        je rreg_snel
+so_slow:
+        mov ah,al
+        mov al,0e9
+        stosb
+        add ah,100
+        mov al,soffset-2
+        sub ax,di
+        stosw
+        ret
+rreg_snel:
+        test byte cs:mflag,1         ;emulating R register?
+        jz rreg_echtsnel
+        mov al,026
+        stosb
+        mov ax,06fe
+        stosw
+        mov ax,offset rr
+        stosw
+rreg_echtsnel:                  ;no, then quickly emulate on
+        mov ax,03d8a
+        stosw
+        mov ax,0e3ff
+        stosw
+        ret
+
+rreg_makeblock:
+        xor si,si
+        test byte cs:mflag,1
+        jz no_rregemul
+        push ax
+        mov al,026              ;es:
+        stosb
+        mov ax,06fe             ;inc b[]
+        stosw
+        mov ax,offset rr
+        stosw
+        pop ax
+no_rregemul:
+        test byte cs:tracing
+        jz no_tracing
+        push ax
+        mov al,0e8
+        stosb
+        mov ax,offset outlog_trace
+        sub ax,di
+        sub ax,2
+        stosw                   ;call outlog_trace
+        pop ax
+no_tracing:
+        test byte cs:mapflg,0ff      ;the map is being kept in the buffer
+        jz nomapping           ;for the hi-res color emulation.
+        test cs:coloremu,0ff
+        jnz nomapping
+        test cs:_nohcrmem,0ff
+        jnz nomapping          ;if no hcr buffers present, then problem!
+        push ax
+        mov al,0e8
+        stosb
+        mov ax,offset keepmap
+        sub ax,di
+        sub ax,2
+        stosw                   ;call keepmap
+        pop ax
+nomapping:
+        test cs:debugflg,0ff
+        jz no_debugging
+        push ax
+        mov al,026
+        stosb
+        mov al,03b
+        stosb
+        mov al,03e
+        stosb
+        mov ax,offset debugadr  ;cmp di,es:[debugadr]
+        stosw
+        mov ax,0375             ;jne >
+        stosw
+        mov al,0e8
+        stosb
+        mov ax,offset trapper
+        sub ax,di
+        sub ax,2
+        stosw                   ;call trapper (usually not to return)
+        pop ax
+no_debugging:
+        test byte cs:countt
+        jz no_countt
+        push ax
+        mov al,026
+        stosb                   ;es:
+        mov ax,02e83
+        stosw                   ;sub w[],n
+        mov ax,offset _tstates
+        stosw
+        mov ax,di               ;high byte: 100+ # T states
+        sub ah,100
+        mov al,ah
+        stosb
+        mov ax,078              ;js to end
+        stosw
+        mov si,di               ;store this address for later
+        pop ax
+no_countt:                      ;now assemble timing loop
+        test ax
+        if nz dec ax
+        mov cx,ax
+        cmp ax,23
+        jb norepblock
+        sub ax,3                ;subtract time for MOV BX,nn
+        mov bx,ax
+        mov al,0bb              ;mov bx,nn
+        stosb
+        mov ax,bx
+        add bx,15               ;bx/16 rounded up
+        shr bx,1
+        shr bx,1
+        shr bx,1
+        shr bx,1
+        xor dx,dx
+        div bx                  ;ax=# nops in block, bx=# blocks, dx=rest
+        xchg ax,bx
+        stosw
+        sub bx,4
+        mov al,090
+        mov cx,bx
+putnops:
+        stosb
+        loop putnops
+        mov al,04b
+        stosb
+        mov al,075
+        stosb
+        mov ax,bx
+        neg ax
+        sub ax,3
+        stosb
+        mov cx,dx
+norepblock:
+        mov al,090
+        jcxz >l1
+        mov bx,di
+        mov bl,0f7
+putnops2:
+        stosb
+        cmp di,bx
+        jae >l1
+        loop putnops2
+l1:     mov ax,03d8a
+        stosw
+        mov ax,0e3ff
+        stosw
+        test si,si
+        jz ret
+        mov ax,di
+        sub ax,si
+        mov es:[si-1],al        ;complete the jc above
+        mov al,0ea              ;jmp far
+        stosb
+        mov ax,offset inter_handler
+        test byte cs:_vocplay,0ff
+        jne this_address        ;when playing voc files, always use inter_handler
+        test byte cs:coloremu,0ff
+        je this_address
+        mov ax,offset inter_handler_coloremu
+        cmp cs:cputype,386
+        if b mov ax,offset inter_handler_coloremu_86
+this_address:
+        stosw
+        push cs
+        pop ax
+        stosw
+        ret
+
+
+movecommand:                    ;ds:si->opcode routine, es:di->destination,
+        push di                 ; cx=length in bytes, al=T states, ah=time offset
+        push cx                 ; in 8086 NOPs
+        rep movsb
+        pop cx
+        pop di
+        push cx
+        push di
+mc_findjx:
+        cmp es:w[di],03d8a
+        if ne jmp mc_next
+        cmp es:w[di+2],0e3ff
+        if ne jmp mc_next
+        push ax
+        push cx
+        push di
+        push ax
+        mov bx,offset slowmod-8
+        xor ah,ah
+        add ax,ax
+        add bx,ax
+        mov ax,cs:[bx]
+        mov di,bx               ;Use this value when in exact T state mode, e.g.
+        pop bx                  ; when playing VOC files!
+        mov bl,bh
+        xor bh,bh
+        test byte cs:countt
+        jne mc_nodebug          ;Use DI
+        sub ax,bx               ;Number of nops to wait. Now find an appropriate
+        if b xor ax,ax          ; slowdown routine
+        mov cx,20
+        mov bx,offset slowmod
+        mov dx,0ffff            ;best hit difference
+        xor di,di               ;best hit
+mc_findslowdown:
+        push ax
+        sub ax,cs:[bx]
+        if s neg ax
+        cmp dx,ax
+        jb mc_badhit
+        mov dx,ax
+        mov di,bx
+mc_badhit:
+        pop ax
+        inc bx
+        inc bx
+        loop mc_findslowdown
+        cmp ax,dx                       ;if ax<dx, no wait
+        if be mov di,offset slowmod-2   ;guaranteed to be 0
+        mov al,byte cs:debugflg
+        or al,cs:winkey
+        or al,cs:_vocplay
+        jz mc_nodebug                   ;Slowdown/T state code not necessary
+        cmp di,offset slowmod-2
+        if e mov di,offset slowmod
+mc_nodebug:
+        sub di,offset slowmod-8
+        shr di,1
+        mov ax,di
+        pop di
+        push di
+        call slowdown_opcode
+        pop di
+        pop cx
+        pop ax
+        add di,7
+        sub cx,7
+mc_next:
+        inc di
+        dec cx
+        if ne jmp mc_findjx
+        pop di
+        pop cx
+        ret
+
+
+get_cbaddrs:
+        push ds
+        mov ds,seg jx_table
+        mov si,offset jx_table
+        cld
+get_cb_end:
+        lodsw
+        test ax
+        jz got_cb_end
+        inc si
+        jmp get_cb_end
+got_cb_end:
+        dec si
+        dec si
+        push ds
+        pop es
+        mov di,si
+        mov ds,seg emulate
+        mov bx,02c
+rreg_cb:
+        cmp bh,64
+        ja rreg_findjxf
+        mov al,bh
+        and al,7
+        cmp al,6
+        jz rregcb_next
+rreg_findjxf:
+        inc bx
+        cmp w[bx],03d8a
+        jne rreg_findjxf
+        cmp w[bx+2],0e3ff
+        jne rreg_findjxf
+        mov ax,bx
+        stosw
+        mov al,bh
+        and al,7
+        cmp al,6                ;(hl)
+        mov al,8
+        jnz rreg_putt
+        mov al,15
+        cmp bh,64
+        jb rreg_putt
+        cmp bh,128
+        jae rreg_putt
+        mov al,12               ;bit n,(hl)
+rreg_putt:
+        stosb
+rregcb_next:
+        mov bl,02c
+        inc bh
+        jne rreg_cb
+        xor ax,ax
+        stosw
+        stosb
+        pop ds
+        ret
+
+
 
 LDIR_INST:
         PUSH DS
@@ -412,14 +1242,23 @@ LDIR_INST:
         PUSH SI
         PUSH DI
         PUSH CX
+        cmp byte cs:coloremu,0ff
+        je ldir_slow
         TEST byte cs:mflag,2
         JZ LDIR_FAST
+ldir_slow:
         MOV SI,LDIR2
         MOV CX,LDIR2_LEN
         PUSH SI
         PUSH CX
         MOV SI,LDDR2
         MOV CX,LDDR2_LEN
+        push ax                         ;***** HMc
+        mov ax,testsioli2               ;*
+        mov word cs:LDIR2A,ax           ;*
+        mov ax,testsiold2               ;*
+        mov word cs:LDDR2A,ax           ;*
+        pop ax                          ;*
         JMP LDIR_LDIR
 LDIR_FAST:
         MOV SI,LDIR1
@@ -428,6 +1267,13 @@ LDIR_FAST:
         PUSH CX
         MOV SI,LDDR1
         MOV CX,LDDR1_LEN
+        push ax                         ;*
+        mov ax,testsioli2-0100          ;*
+        mov word cs:LDIR2A,ax           ;*
+        mov ax,testsiold2-0100          ;*
+        mov word cs:LDDR2A,ax           ;*
+        pop ax                          ;*
+
 LDIR_LDIR:
         MOV ES,SEG EMULATE
         PUSH CS
@@ -457,707 +1303,39 @@ LDIR_LDIR:
         POP DS
         RET
 
-LDIR1:
-        TEST SI,0C000
-        IF Z JMP LDIR1+0100
-        DEC CX
-        ADD SI,CX
-        SUB SI,CX
-        INC CX
-        IF C JMP LDIR1+0100
-        PUSH ES
-        PUSH DS
-        POP ES
-        XCHG DI,DX
-        XCHG SI,DI
-        CLD
-        REP MOVSB
-        POP ES
-        XCHG SI,DI
-        XCHG DI,DX
-        AND AH,011101001XB
-        XOR BL,BL
-        MOV BH,[DI]
-        JMP BX
-        db 5 dup 090
-LDIR1_LEN       EQU $-LDIR1
-
-LDIR2:
-        XCHG BX,DX
-        PUSH AX
-;        sub es:byte[rr],2
-;LDIR_NEXT_BYTE:
-;        add es:byte[rr],2
-        MOV AH,[BX]
-        TEST SI,0C000
-        IF NZ MOV [SI],AH
-        INC BX
-        INC SI
-        POP AX
-        XCHG DX,BX
-        XOR BL,BL
-        DEC CX
-        JZ SHORT LDIR_END
-;        CMP W[DI-2],0B0ED              ;This slight speedup causes difficulties
-;        JZ LDIR_NEXT_BYTE              ;in TIMER, and -l isn't needed much anyway
-        DEC DI
-        DEC DI
-        OR AH,4
-        MOV BH,[DI]
-        JMP BX
-        db 5 dup 090
-LDIR_END:
-        AND AH,011101001XB
-        MOV BH,[DI]
-        JMP BX
-        db 5 dup 090
-LDIR2_LEN        EQU $-LDIR2
-
-LDDR1:
-        TEST SI,0C000
-        IF Z JMP LDDR1+0100
-        PUSH CX
-        ADD CX,03FFF
-        SUB SI,CX
-        ADD SI,CX
-        POP CX
-        IF C JMP LDDR1+0100
-        PUSH ES
-        PUSH DS
-        POP ES
-        XCHG DI,DX
-        XCHG SI,DI
-        STD
-        REP MOVSB
-        POP ES
-        XCHG SI,DI
-        XCHG DI,DX
-        AND AH,011101001XB
-        XOR BL,BL
-        MOV BH,[DI]
-        JMP BX
-        db 5 dup 090
-LDDR1_LEN        EQU $-LDDR1
-
-LDDR2:
-        XCHG BX,DX
-        PUSH AX
-;        sub es:b[rr],2
-;LDDR_NEXT_BYTE:
-;        add es:b[rr],2
-        MOV AH,[BX]
-        TEST SI,0C000
-        IF NZ MOV [SI],AH
-        DEC BX
-        DEC SI
-        POP AX
-        XCHG DX,BX
-        XOR BL,BL
-        DEC CX
-        JZ LDDR_END
-;        CMP W[DI-2],0B8ED
-;        JZ LDDR_NEXT_BYTE
-        DEC DI
-        DEC DI
-        OR AH,4
-        MOV BH,[DI]
-        JMP BX
-        db 5 dup 090
-LDDR_END:
-        AND AH,011101001XB
-        MOV BH,[DI]
-        JMP BX
-        db 5 dup 090
-LDDR2_LEN       EQU $-LDDR2
 
 
 
-
-
-END_SPECTR:
-        CLI
-        MOV AL,020
-        OUT 020,AL
-        MOV AL,0FF
-        OUT 040,AL
-        NOP
-        NOP
-        OUT 040,AL
-        IN AL,061
-        AND AL,011111100XB
-        OUT 061,AL              ;EVT. PIEP UIT
-        MOV AX,CS
-        MOV DS,AX
-        call close_tapefiles
-        CALL UNINSTALL_COM
-        CALL FLUSHOUTPUT
-        CALL CLEARINPUT
-        CALL GET_VECTORS
-        call mdrv_closeall
-        mov dx,cs:emshandle
-        mov ah,045
-        test dx,dx
-        if nz int 067           ;deallocate ems memory
-        STI
-        call text_mode
-        mov bx,cs:romhandle
-        mov ah,03e
-        test bx,bx
-        if nz int 021
-        mov bx,cs:xrhandle
-        mov ah,03e
-        test bx,bx
-        if nz int 021
-        mov dx,endmes
-        mov ah,9
-        int 021
-        MOV AX,04C00            ;terminate met exit code 00
-        INT 021
-
-
-
-intro:
-        push cs
-        pop ds
-        mov ax,w[offset specseg]
-        mov es,ax
-        mov di,16384
-        mov ax,seg introscr
-        sub ax,0400
-        mov ds,ax
-        mov si,offset introscr+04000
-        cld
-        mov cx,6912
-        call descr_loop
-        push cs
-        pop ds
-        mov byte vid_act,0ff
-        mov byte borclr,4
-        mov byte newbor,0
-        push es
-        pop ds
-        call video_update
-        mov cx,7
-iwaitl: push cx
-        mov ah,02c
-        int 021
-        mov al,dh
-iwait:  push ax
-        mov ah,0b
-        int 021
-        and al,al
-        jnz key_pressed
-        mov ah,02c
-        int 021
-        pop ax
-        cmp al,dh
-        jz iwait
-        pop cx
-        loop iwaitl
-        jmp intro_exit
-key_pressed:
-        pop ax
-        pop ax
-intro_exit:
-        ret
-
-
-
-segviolation:                           ;PUSH/POP use MOV BX,DS:[BP]
-                                        ;If BP=0ffff, it generates an
-        cmp bp,0ffff                    ;interrupt. This routine makes
-        jnz notmine                     ;sure the Z80 opcode is emulated
-        mov bp,sp                       ;correctly.
-        cmp w[bp+2],seg emulate         ;All this won't work with QEMM installed
-        jnz notmine_bp
+get_zxprintstatus:
+;Is called by times, 50 times an emulated second.
+;Updates zxprstatus, the status of the printer attached to port 'zxprint',
+;which controls the status bits of port FB (zx printer)
         push ax
-        push di
-        mov di,bx                       ;temporary storage
-        mov ax,w[bp]
-        xor ah,193
-        test ah,203                     ;push / pop?
-        jnz seg_return
-        test ah,4                       ;if push, jump forward
-        jnz seg_dopushlater
-        mov bl,[0ffff]                  ;get the popped value
-        mov bh,[0]
-seg_dopushlater:
-        call seg_xchgregs               ;xchg bx <-> z80 register
-        test ah,4
-        jz seg_return                   ;if pop, we're done
-        mov [0ffff],bl                  ;if push, now push and
-        call seg_xchgregs               ;restore z80 register
-seg_return:
-        mov ax,[bp]
-        add ax,4                        ;step over problematic instruction
-        mov [bp],ax
-        mov bx,di
-        pop di
-        pop ax
-        mov bp,0ffff
-        iret
-notmine_bp:
-        mov bp,0ffff
-notmine:
-        jmp far cs:d[offset segvioladr]
-
-seg_xchgregs:
-        test ah,16
-        jnz seg_deoraf
-        test ah,32
-        jnz seg_hl
-        xchg bx,cx
-        ret
-seg_hl:
-        cmp al,04d
-        if b xchg bx,dx
-        if ae xchg bx,di
-        ret
-seg_deoraf:
-        test ah,32
-        jnz seg_af
-        xchg bx,si
-        ret
-seg_af:
-        xchg bx,[bp-2]
-        ret
-
-adlib_write:                 ;writes value ah to register al
-        push cx
+        mov ah,cs:zxprstatus
+        and ah,128+8
+        cmp ah,128
+        je statusok
         push dx
-        mov dx,0388
-        out dx,al
-        in al,dx
-        in al,dx
-        in al,dx
-        in al,dx
-        in al,dx
-        in al,dx
-        mov al,ah
-        inc dx
-        out dx,al
+        mov dx,cs:zxprint
+        mov ah,2
+        int 017
+        mov cs:zxprstatus,ah
         pop dx
-        pop cx
-        ret
-
-adlib_writep:
-        call adlib_write
-adlib_pause:
-        push ax
-        push dx
-        push cx
-        mov dx,0388
-        mov cx,35
-adlib_wait2:
-        in al,dx
-        loop adlib_wait2
-        pop cx
-        pop dx
+statusok:
         pop ax
         ret
 
 
-cms_write:                      ;writes value ah to register al
-        push dx
-        mov dx,0221
-        out dx,al
-        xchg ah,al
-        dec dx
-        out dx,al
-        xchg ah,al
-        pop dx
-        ret
 
+;**************************************************************************
 
-adlib_init:
-        cmp byte cs:adlib,0ff
-        jnz ret
-        mov ax,06004
-        call adlib_writep
-        mov ax,08004
-        call adlib_writep
-        mov dx,0388
-        in al,dx
-        push ax
-        mov ax,0ff02
-        call adlib_writep
-        mov ax,02104
-        call adlib_writep
-        mov cx,200
-l1:     in al,dx
-        loop l1
-        push ax
-        mov ax,04
-        call adlib_writep
-        pop ax
-        and al,0e0
-        cmp al,0c0
-        pop ax
-        if nz jmp adlib_notok
-        and al,0e0
-        if nz jmp adlib_notok
-        mov byte cs:intsnd,0    ;disable internal speaker '128 sound
-        mov byte cs:s_oldctrl,0ff
-        mov ax,0
-l1:     push ax
-        call adlib_writep
-        pop ax
-        inc al
-        jnz l1
-        mov ax,02001
-        call adlib_writep        ;enable distorted waveforms
-        mov al,020
-        mov cx,6                ;three carriers and modulators
-l1:     push ax
-        mov ah,021              ;frequency multiple 1, normal sustain
-        call adlib_writep
-        pop ax
-        push ax
-        mov ah,1                ;distorted sine wave
-        add al,0c0
-        call adlib_writep
-        pop ax
-        push ax
-        mov ah,0ff              ;ff
-        add al,040
-        call adlib_writep       ;quick attack, no decay
-        pop ax
-        push ax
-        mov ah,00f
-        add al,060
-        call adlib_writep       ;(sustain: loud, release: quick)
-        pop ax
-        inc al
-        loop l1
-        mov al,0
-        mov cx,3                ;3 modulator/carrier operators
-l1:     push ax
-        mov ah,0
-        add al,0c0              ;F.M. synthesis, no feedback
-        call adlib_writep
-        pop ax
-        push ax
-        mov ah,010               ;Modulator total level about 40 db
-        add al,040
-        call adlib_writep
-        pop ax
-        inc al
-        loop l1
-        cmp byte cs:cmschips,0ff
-        jz usecms
-        mov ax,02134            ;snare drum: normal envelope, multi=1
-        call adlib_writep
-        mov ax,0f074            ;quick attack, no decay
-        call adlib_writep
-        mov ax,0f94             ;(max sustain, quick release)
-        call adlib_writep
-        mov ax,028bd            ;turn on snare drum
-        call adlib_writep
-        call adlib_quiet
-        mov dx,adlib_msg
-        jmp >l1
-usecms:
-        mov ax,0                ;channel 0 amp 0
-        call cms_write
-        mov ax,014              ;disable tone all channels
-        call cms_write
-        mov ax,0115
-        call cms_write          ;disable noise all channels but channel 0
-        mov ax,0ff16
-        call cms_write          ;highest available noise frequency
-        mov ax,011c
-        call cms_write          ;sound enable
-        mov dx,adlib_msg
-        jmp >l1
-adlib_notok:
-        mov byte cs:adlib,0
-        mov dx,noadlib_msg
-l1:     push ds
-        push cs
-        pop ds
-        mov ah,9
-        int 021
-        pop ds
-        ret
+ testsioli1  equ (testsi2-(Ldiradr+(LDIR1c-LDIR1))) ; (testsi address) ***** HMc *****
+ testsioli2  equ (testsi2-(Ldiradr+(LDIR2c-LDIR2))) ; (testsi address) ***** HMc *****
+ testsiold1  equ (testsi2-(Lddradr+(LDDR1c-LDDR1))) ; (testsi address) ***** HMc *****
+ testsiold2  equ (testsi2-(Lddradr+(LDDR2c-LDDR2))) ; (testsi address) ***** HMc *****
 
-
-
-
-queer2_ems:
-        push es
-        push ax
-        cmp byte cs:sambank,1   ;samrom 1 active?
-        jz q2_active
-        push cx
-        push dx
-        push si
-        push di
-        mov ax,04400            ;phys. page 0 (rom)
-        mov bx,2                ;samrom 1
-        mov dx,cs:emshandle
-        int 067
-        mov ax,cs:samseg
-        mov es,ax
-        xor si,si
-        xor di,di
-        mov cx,02000
-        cld
-        rep movsw
-        mov ax,04400
-        mov bl,cs:[offset ramstate]
-        xor bh,bh
-        int 067
-        pop di
-        pop si
-        pop dx
-        pop cx
-        mov byte cs:sambank,1
-q2_active:
-        mov ax,cs:samseg
-        mov es,ax
-        cmp si,04000
-        pop ax
-        ja $+1
-        es:
-        mov al,[si]
-        pop es
-        mov bx,dx
-        cmp bh,040
-        if ae mov [bx],al
-        xchg bx,si
-        inc bl
-        xchg bx,si
-        inc dh
-        jmp far emulate
-
-ldobhla_ems:
-        push dx
-        push ax
-        mov dx,cs:emshandle
-        mov bl,cs:[offset ramstate+2]   ;4 or 6
-        xor bl,2                        ;other 32k bank
-        xor bh,bh
-        mov ax,04402
-        int 067
-        inc bl
-        mov ax,04403
-        int 067
-        pop ax
-        pop bx
-        cmp bh,040
-        if ae mov [bx],al
-        push bx
-        push ax
-        mov bl,cs:[offset ramstate+2]
-        xor bh,bh
-        mov ax,04402
-        int 067
-        inc bl
-        mov ax,04403
-        int 067
-        pop ax
-        pop dx
-        jmp far emulate
-
-ldobahl_ems:
-        push dx
-        push ax
-        mov dx,cs:emshandle
-        mov bl,cs:[offset ramstate+2]   ;4 or 6
-        xor bl,2                        ;other 32k bank
-        xor bh,bh
-        mov ax,04402
-        int 067
-        inc bl
-        mov ax,04403
-        int 067
-        pop ax
-        pop bx
-        mov al,[bx]
-        push bx
-        push ax
-        mov bl,cs:[offset ramstate+2]
-        xor bh,bh
-        mov ax,04402
-        int 067
-        inc bl
-        mov ax,04403
-        int 067
-        pop ax
-        pop dx
-        jmp far emulate
-
-
-
-
-JOYSTICK_UPDATE:
-        test byte cs:zandjoy,0ff
-        jz upd_no_zandbergen
-        mov dx,0201
-        in al,dx
-        out dx,al
-        xor al,16
-        and al,31
-        mov bl,al
-        shr bl,1
-        xor bl,al
-        test bl,1
-        if nz xor al,3
-        mov bl,al
-        jmp short j_upd_algemeen
-        ret
-upd_no_zandbergen:
-        mov cx,cs:joytel
-        test cx
-        jz ret
-        push dx
-        push si
-        push di
-        shr cx,1
-        add cx,cs:joytel
-        push cx
-        call meetjoystick
-        pop cx
-        add si,cs:joytelsi
-        sub si,cx
-        add di,cs:joyteldi
-        sub di,cx
-        in al,dx
-        and al,16
-        xor al,16
-        mov bl,al
-        mov ax,cs:joytelsi
-        shl ax,1
-        xor dx,dx
-        mov cx,5
-        div cx
-        test si,si
-        js sineg
-        cmp si,ax
-        if a or bl,1
-        jmp short sidone
-sineg:  neg si
-        cmp si,ax
-        if a or bl,2
-sidone: mov ax,cs:joyteldi
-        shl ax,1
-        xor dx,dx
-        div cx
-        test di,di
-        js dineg
-        cmp di,ax
-        if a or bl,8
-        jmp short didone
-dineg:  neg di
-        cmp di,ax
-        if a or bl,4
-didone: mov al,bl
-j_upd_algemeen:
-        xor al,cs:joyxy
-        mov cs:joyxy,bl
-        jz j_upd_end
-        mov cl,0
-j_upd_loop:
-        clc
-        rcr bl,1
-        sbb ah,ah
-        not ah
-        clc
-        rcr al,1
-        jnc j_zelfde
-        push bx
-        push cx
-        xchg byte cs:break,ah
-        push ax
-        mov al,cl
-        call set_joystick
-        pop ax
-        xchg byte cs:break,ah
-        pop cx
-        pop bx
-j_zelfde:
-        inc cl
-        test al,al
-        jnz j_upd_loop
-        call matrix_error
-j_upd_end:
-        pop di
-        pop si
-        pop dx
-        ret
-
-
-
-meetjoystick:
-        mov dx,0201
-        out dx,al
-        mov si,0
-        mov di,0
-        mov ah,3
-        cli
-j_get_pos:
-        in al,dx
-        not al
-        and al,ah
-        jz j_nochange
-        test al,1
-        jz j_noxpos
-        mov si,cx               ;xpos
-        and ah,2
-j_noxpos:
-        test al,2
-        jz j_nochange
-        mov di,cx               ;ypos
-        and ah,1
-j_nochange:
-        loop j_get_pos
-        sti
-        ret
-
-
-INITJOYSTICK:
-        mov word cs:joytel,0
-        cmp byte cs:zandjoy,0ff
-        jne ret                 ;Return als opties -kk of -kz gegeven zijn.
-        mov dx,0201
-        out dx,al
-        mov cx,0
-initjoypauze:
-        loop initjoypauze
-        in al,dx
-        and al,0e0
-        cmp al,060
-        jnz no_zandbergen       ;Geen Ruud Zandbergen joystick
-        mov byte cs:zandjoy,1
-        mov dx,zandjoymes
-        jmp print
-no_zandbergen:
-        mov byte cs:zandjoy,0
-        mov cx,30000
-        call meetjoystick
-        xor ax,ax
-        cmp si,ax
-        jz nojoystick
-        cmp di,ax
-        jz nojoystick
-        mov ax,30000
-        sub ax,si
-        mov cs:joytelsi,ax
-        mov ax,30000
-        sub ax,di
-        mov cs:joyteldi,ax
-        mov ax,30000
-        cmp si,di
-        if a mov si,di
-        sub ax,si
-nojoystick:
-        mov cs:joytel,ax
-        mov dx,normjoymes
-        if z mov dx,nojoymes
-        jmp print
 
 
 
 startup ends
 
-

@@ -1,21 +1,16 @@
-;
-;   This file is part of the registered Spectrum emulator package 'Z80'
-;   version 2.01, and may not be distributed.  You may use this source for
-;   other PC based Spectrum or Z80 emulators only after permission.  It is
-;   however permitted to use this source file or parts thereof for Spectrum
-;   or Z80 emulators on non-PC based machines, provided that the source is
-;   acknowledged.
-;
-;                                                       Gerton Lunter, 3/5/93
-
 startup segment para public
+
+xherc   equ 0
+plant   equ 0
 
 INIT_VIDEO:
         MOV AH,0F
         INT 010
         MOV CS:OLD_MODE,AL
+#if xherc
         CMP BYTE CS:XTDHERC,0FF
         IF Z JMP INIT_XTD_HERC
+#endif
         CMP BYTE CS:HERCFLG,0FF
         if Z jmp INIT_HERC
         CMP BYTE CS:CGA,0FF
@@ -24,8 +19,10 @@ INIT_VIDEO:
         IF Z JMP INIT_EGA
         cmp byte cs:vga,0ff
         if z jmp init_vga
+#if plant
         CMP BYTE CS:PLANTR,0FF
         IF Z JMP INIT_PLANTR
+#endif
 
         push es
         push cs
@@ -44,9 +41,11 @@ INIT_VIDEO:
         cmp bl,010
         if nz jmp init_ega
 
+#if plant
         CALL GET_TT
         CMP CS:BYTE TTYPE,1
         IF NZ JMP INIT_PLANTR
+#endif
 
         CALL HERCPRESENT
         CMP AL,1
@@ -108,12 +107,15 @@ INIT_HERC2:
         REP STOSW
         POP ES
         RET
+#if xherc
 INIT_XTD_HERC:
         MOV BYTE CS:GMOD,2
         CALL PRVK
         MOV BYTE CS:MODE,2
         JMP INIT_HERC2
+#endif
 
+#if plant
 INIT_PLANTR:
         MOV BYTE CS:GMOD,3              ;'PLANTRONICS'
         CALL PRVK
@@ -129,6 +131,7 @@ INIT_PLANTR:
         REP STOSW
         POP ES
         RET
+#endif
 
 INIT_EGA:
         MOV BYTE CS:GMOD,4           ;'EGA'
@@ -187,13 +190,26 @@ initv_1:
         inc al
         loop initv_1
         mov cx,0100
-        mov ax,01110
         mov bx,0100
-        cmp byte cs:trivga,0ff
-        if z inc bh
         xor dx,dx
         mov bp,offset vga_workspace
+        cmp byte cs:trivga,0ff          ;Changes here by Samir Ribic
+        jnz initv_no_xv
+        mov  ax, 01100
+        mov  bx,0200
+        int  010
+        mov  dx,03D4
+        mov  al,9
+        out  dx,al
+        inc  dx
+        mov  al,1
+        out  dx,al
+        jmp initv_continue
+initv_no_xv:
+        mov ax,01110
+        mov bx,0100
         int 010
+initv_continue:
         mov ah,1
         mov cx,0100
         int 010
@@ -325,6 +341,29 @@ initv_table2:
         inc bx
         inc bx
         loop initv_table2
+        mov di,offset vga_coloremu_table
+        mov bx,16384
+        mov cx,192
+initv_table3:
+        mov ax,bx
+        shr ah,1
+        shr ah,1
+        shr ah,1
+        add ah,80               ;now ax is attr address corr. to bx
+        sub ax,bx               ;now ax is attr offset rel. to bx
+        sub ax,32               ;see get_line in miscp2.8
+        stosw
+        mov ax,bx
+        stosw                   ;and store display address
+        inc bh                  ;new pixel line
+        test bh,7
+        jne initvt3_ok
+        add bx,32-8*256         ;new char line
+        test bl,bl
+        jne initvt3_ok
+        add bx,2048-8*32        ;new third
+initvt3_ok:
+        loop initv_table3
         mov ax,0b800
         mov es,ax
         xor di,di
@@ -352,10 +391,12 @@ HERC_TABLES:
         DB 2, 035,02D,02E,07,05B,02,058,058,02,03,0 ,0
         DB 2, 035,02A,02B,0A,064,02,061,061,02,03,0 ,0
 
+#if plant
 PLANTR_TABLES:
         DB 071,050,05A,0A,01F,06,019,01C,02,07,06,07,0,0,0,0
         db 038,028,02d,0a,07f,06,064,070,02,01,06,07,0,0,0,0
         db 038,028,02d,0a,07f,06,064,070,02,01,06,07,0,0,0,0
+#endif
 
 HERCPRESENT:
         MOV BX,0100
@@ -399,6 +440,7 @@ CHECK_RAM:
         ES MOV B[03FFF],CL
         RET
 
+#if plant
 GET_TT:
         CMP CS:BYTE TTYPE,0
         JNZ RET
@@ -448,10 +490,13 @@ COUNTIT2:
         JA RET
         MOV CS:BYTE TTYPE,3     ;COLOR MODE
         RET
+#endif
 
 SETMODE:
+#if plant
         CMP CS:BYTE GMOD,3
         JZ SETMOD_PLANTR
+#endif
         MOV AL,CS:MODE
         CMP AL,2
         IF A MOV AL,1
@@ -484,6 +529,7 @@ NOT_EOT:
         MOV DL,0B8
         OUT DX,AL
         RET
+#if plant
 SETMOD_PLANTR:                  ;MODE 0=TEXT, 1=GRAPH (ADHV TTYPE)
         MOV DX,03D8
         MOV AL,2
@@ -568,6 +614,7 @@ PROGRAM_CRT_LOOP:
         JNZ PROGRAM_CRT_LOOP
         MOV DX,03D8
         RET
+#endif
 
 PRVK:   MOV DX,OFFSET VIDEOKAART
         PUSH DS
@@ -617,66 +664,37 @@ NO_HERC2:
 
 
 
+
+flashcount:
+        mov bl,15
+        cmp byte cs:flash,0
+        if nz mov bl,7
+        mov al,cs:flshcnt
+        inc al
+        mov cs:flshcnt,al
+        test al,bl
+        jz ret
+        mov byte cs:fflag,0ff
+        inc bl
+        test al,bl
+        mov ax,0100
+        if z dec ah
+        mov cs:fstate,ax
+        ret
+
+
+
 VIDEO_UPDATE:
-        STD
-        TEST BYTE CS:VID_ACT
-        JZ RET
         PUSH SI
         PUSH DI
         PUSH BP
         PUSH DX
         PUSH ES
         push ds
-;        mov ax,04003            ;talk to windows
-;        int 02f
+        STD
         mov ds,cs:specseg
         MOV ES,CS:VIDBUFSEG
-        MOV BL,16
-        CMP BYTE CS:FLASH,0
-        IF NZ MOV BL,8
-        MOV AL,CS:FLSHCNT
-        INC AL
-        MOV CS:FLSHCNT,AL
-        AND AL,BL
-        MOV AX,ATTR_TAB
-        IF Z DEC AH             ;GA NAAR ATTR_TAB_F
-        CMP AX,CS:ATRFLSH
-        MOV CS:ATRFLSH,AX
-        JZ START_VID_EMULATING
-        MOV BX,AX
-        MOV SI,23294
-        MOV CX,768/2
-ZERO_FLASH:
-        LODSW
-        AND AX,08080
-        not ax
-        and ES:[si+2],ax
-        LOOP ZERO_FLASH
-        MOV AX,BX
-        MOV cs:[offset ATRPOK1],AX
-        MOV cs:[offset ATRPOK2],AX
-        MOV cs:[offset ATRPOK3],AX
-        MOV cs:[offset ATRPOK4],AX
-        MOV cs:[offset ATRPOK5],AX
-        MOV cs:[offset ATRPOK6],AX
-        MOV cs:[offset ATRPOK7],AX
-        MOV cs:[offset ATRPOK8],AX
-        ADD aX,0300             ;Ga naar EGA attr area's
-        MOV cs:[offset ATRPOK9],AX
-        MOV cs:[offset ATRPOKA],AX
-        sub ax,0300+attr_tab
-        push ax
-        add ax,offset vga_workspace+0100
-        mov cs:[offset atrpokvga],ax
-        pop ax
-        add ax,cs:atradr           ;Ga naar Plantronics attr's
-        mov cs:[offset atrpokb1],ax
-        mov cs:[offset atrpokc1],ax
-        add ax,0300             ;ga naar 2e plantronics attr's
-        mov cs:[offset atrpokb2],ax
-        mov cs:[offset atrpokc2],ax
-START_VID_EMULATING:
-        cmp byte cs:rommod,3
+        cmp byte cs:rommod,4            ;HMc
         jb one_screen
         test byte cs:hstate,8           ;Is the screen at page 7?
         je one_screen                   ;Nope, page 5 is (fixed at 4000)
@@ -686,7 +704,7 @@ START_VID_EMULATING:
         je second_in_ram
         mov ax,010a
         call swap_mem
-        stc                     ;Signal: restore memory state afterwards!!
+        stc                             ;Signal: restore memory state afterwards!!
         pushf
         jmp short two_screens
 second_in_ram:
@@ -705,19 +723,70 @@ one_screen:
         clc
         pushf                   ;This signals: memory state hasn't changed
 two_screens:
+        test byte cs:fflag
+        mov byte cs:fflag,0
+        je start_vid_emulating
+        MOV SI,23294
+        MOV CX,768/2
+ZERO_FLASH:
+        LODSW
+        AND AX,08080
+        not ax
+        and ES:[si+2],ax
+        LOOP ZERO_FLASH
+START_VID_EMULATING:
+        mov ax,cs:fstate
         cmp byte cs:gmod,5
-        if z jmp vga_emul
+        jne not_vga
+        add ax,offset vga_workspace
+        mov cs:[offset atrpokvga],ax
+        mov cs:[offset atrpokvga2],ax
+        jmp vga_emul
+not_vga:
         MOV SI,16384+6910
         MOV DI,SI
         MOV CX,768/2
         CMP BYTE CS:GMOD,1      ;1=Hercules
-        if Z jmp HERC_EMUL
+        jne no_herc
+        add ax,attr_tab-0100
+        mov cs:[offset atrpok3],ax
+        mov cs:[offset atrpok4],ax
+        jmp herc_emul
+no_herc:
+#if xherc
         CMP BYTE CS:GMOD,2      ;2=XTD HERC
-        if Z jmp XTD_HERC_EMUL
+        jne no_xherc
+        add ax,attr_tab-0100
+        mov cs:[offset atrpok5],ax
+        mov cs:[offset atrpok6],ax
+        mov cs:[offset atrpok7],ax
+        mov cs:[offset atrpok8],ax
+        jmp xtd_herc_emul
+no_xherc:
+#endif
         CMP BYTE CS:GMOD,4      ;4=EGA
-        IF Z JMP EGA_EMUL
+        jne no_ega
+        add ax,attr_tab+0200
+        mov cs:[offset atrpok9],ax
+        mov cs:[offset atrpoka],ax
+        jmp ega_emul
+no_ega:
+#if plant
         CMP BYTE CS:GMOD,3      ;3=PLANTRONICS
-        IF Z JMP PLANT_EMUL
+        jne no_plant
+        add ax,cs:atradr
+        dec ah
+        mov cs:[offset atrpokb1],ax
+        mov cs:[offset atrpokc1],ax
+        add ax,0300
+        mov cs:[offset atrpokb2],ax
+        mov cs:[offset atrpokc2],ax
+        jmp plant_emul
+no_plant:
+#endif
+        add ax,attr_tab-0100
+        mov cs:[offset atrpok1],ax
+        mov cs:[offset atrpok2],ax
 ATTR_SCAN:
         REPZ CMPSW
         JZ START_SCREEN_SCAN
@@ -758,22 +827,22 @@ END_VID_UPDATE:
         IF Z CALL BOREMUL_CGA
         CMP BYTE CS:GMOD,1
         IF Z CALL BOREMUL_HERC
+#if xherc
         CMP BYTE CS:GMOD,2
         IF Z CALL BOREMUL_X_HERC
+#endif
         CMP BYTE CS:GMOD,4
         IF Z CALL BOREMUL_EGA
+#if plant
         CMP BYTE CS:GMOD,3
         IF Z CALL BOREMUL_PLANT
+#endif
         cmp byte cs:gmod,5
         if z call boremul_vga
 NO_EMUL:
         popf
         mov ax,0108
         if c call swap_mem
-
-;        mov ax,04004
-;        int 02f                 ;talk to windows again
-
         pop ds
         POP ES
         POP DX
@@ -813,6 +882,7 @@ l1:     inc cx
         cmp al,al
         JMP SCREEN_SCAN_HERC
 
+#if xherc
 XTD_HERC_EMUL:
         REPZ CMPSw
         JZ START_SCREEN_SCAN_X_HERC
@@ -843,7 +913,9 @@ SCREEN_SCAN_X_HERC:
 l1:     inc cx
         cmp al,al
         JMP SCREEN_SCAN_X_HERC
+#endif
 
+#if plant
 PLANT_EMUL:
         REPZ CMPSw
         JZ START_SCREEN_SCAN_PLANT
@@ -874,6 +946,7 @@ SCREEN_SCAN_PLANT:
 l1:     inc cx
         cmp al,al
         JMP SCREEN_SCAN_PLANT
+#endif
 
 EGA_EMUL:
         MOV DX,03CE
@@ -924,30 +997,229 @@ END_VID_UPDATE_EGA:
         JMP END_VID_UPDATE
 
 
-vga_emul:
+vga_emul_386:
+        mov si,16384
+vga_3blocks_386:
+        mov di,si
+        mov cx,6144/12
+        mov dx,0b800
+        mov bp,ds
+        cmp al,al
+vga_scremul_386:
+        repz
+        db 066
+        cmpsw                   ;repz cmpsd
+        jz vga_attremul_386
+        sub si,4
+        mov di,si
+        db 066
+        lodsw                   ;lodsd
+        db 066
+        stosw                   ;stosd
+        mov bx,cs:[si+vga_scrn_addrs-16388]
+        mov ds,dx
+        mov [bx],al
+        mov [bx+2],ah
+        db 066
+        shr ax,16               ;shr eax,16
+        mov [bx+4],al
+        mov [bx+6],ah
+        mov ds,bp
+        xor al,al
+        jmp vga_scremul_386
+vga_attremul_386:
+        mov cx,768/12           ;si=16384+n*2048 (1,2,3)
+        shr si,3                ;si=2048+n*256
+        add si,20480-256        ;si+22528+n*256 (0,1,2)
+        mov di,si
+vga_attr_386:
+        repz
+        db 066
+        cmpsw                   ;repz cmpsd
+        jz vga_nextblock_386
+        push cx
+        sub si,4
+        mov di,si
+        db 066
+        lodsw                   ;lodsd
+        db 066
+        mov cx,es:[di]          ;mov ecx,es:[di]
+        db 066
+        xor cx,ax               ;xor ecx,eax
+        db 066
+        stosw                   ;(stosd)  now DI = atr.addr (0-767) + 22528 + 4
+        add di,di               ;2*atr.addr + 45064
+        mov di,cs:w[di+vga_attr_addrs-45064]
+        mov bx,offset vga_workspace
+atrpokvga2 equ $-2
+        stc
+vga_attrbyte_386:
+        db 066
+        rcr cx,1                ;rcr ecx,1
+        jnc vga_nocheckend_386
+        db 066
+        test cx,cx              ;test ecx,ecx
+        je vga_next4block_386
+        jmp short vga_updatethis_386
+vga_nocheckend_386:
+        test cl,07f
+        je vga_attrbyte_loop_386
+vga_updatethis_386:
+        cs:xlatb
+        mov ds,dx
+        mov b[di],al
+        mov b[di+80],al
+        mov b[di+160],al
+        mov b[di+240],al
+        mov b[di+320],al
+        mov b[di+400],al
+        mov b[di+480],al
+        mov b[di+560],al
+        mov ds,bp
+vga_attrbyte_loop_386:
+        db 066
+        shr ax,8                ;shr eax,8
+        db 066
+        shr cx,7                ;shr ecx,7
+        add di,2                ;nc
+        jmp vga_attrbyte_386
+vga_next4block_386:             ;ZF = 1
+        mov di,si
+        pop cx
+        jmp vga_attr_386
+vga_nextblock_386:              ;SI = 22528+n*256 (1,2,3)
+        shl si,3                ;SI = 49152+n*2048
+        add si,08000            ;SI = 16384+n*2048
+        cmp si,22528
+        if ne jmp vga_3blocks_386
+        jmp end_vid_update_vga
+
+
+
+vgaborder_update:
+        cmp cs:gmod,5
+        jne ret
+        mov dx,03da
+        in al,dx
+        mov dl,0c0
+        mov al,8
+        out dx,al
+        jmp $+2
+        mov al,cs:newbor
+        and al,7
+        out dx,al
+        mov al,49
+        out dx,al
+        push es
+        push di
+        mov ax,0b800
+        mov es,ax
+        xor di,di
+        mov cx,4*40+4
+        mov ax,08800
         cld
+        rep stosw
+        mov cx,192
+restore_brder:
+        add di,64
+        stosw
+        stosw
+        stosw
+        stosw
+        stosw
+        stosw
+        stosw
+        stosw
+        loop restore_brder
+        mov cx,4*40-4
+        rep stosw
+        pop di
+        pop es
+        ret
+
+
+
+vga_emul_hcrmode:
+        mov si,16384
+        mov di,si
+        mov cx,6912/2
+ved_1:  lodsw
+        not ax
+        stosw
+        loop ved_1
+        push es
+        mov es,cs:vgahcrbuf
+        mov si,16384
+        mov di,164+16384
+        mov bl,192
+ved_0:  mov cx,32/2
+        rep movsw
+        add si,256-32
+        test si,2048-256
+        jne ved_00
+        add si,32-2048
+        test si,255
+        jne ved_00
+        add si,2048-256
+ved_00:
+        add di,8
+        dec bl
+        jne ved_0
+        mov bl,24
+        mov di,16384+8192+164
+ved_2:  mov bh,8
+ved_3:  mov cx,32/2
+        rep movsw
+        add di,8
+        sub si,32
+        dec bh
+        jne ved_3
+        add si,32
+        dec bl
+        jne ved_2
+        push ds
+        push es
+        pop ds
+        mov si,16384
+        mov di,0
+        mov cx,(8192+164+40*192)/2
+        rep movsw
+        pop ds
+        pop es
+        call vgaborder_update
+        ret
+
+
+
+vga_emul:                               ;With improvements by Steve O'Brien
+        cld
+        cmp byte cs:coloremu,0ff
+        jne vga_emul_normal
+        call vga_emul_hcrmode
+vga_emul_normal:
+        cmp cs:word cputype,386
+        if ae jmp vga_emul_386
         mov si,16384
 vga_3blocks:
         mov di,si
         mov cx,6144/6
-vga_scremul:
+        mov dx,0b800
+        mov bp,ds
+        cmp al,al
+vga_scremul_86:
         repz cmpsw
         jz vga_attremul
-        dec si
-        dec si
+        sub si,2
         mov di,si
-        mov ax,0b800
-        push ds
-        push ax
         lodsw
         stosw
         mov bx,cs:[si+vga_scrn_addrs-16386]
-        pop ds
+        mov ds,dx
         mov [bx],al
         mov [bx+2],ah
-        pop ds
+        mov ds,bp
         xor al,al
-        jmp vga_scremul
+        jmp vga_scremul_86
 vga_attremul:
         mov cx,768/3
         cmp si,16384+4096
@@ -967,15 +1239,12 @@ vga_attr2:
         add di,si
         sub di,45057
         mov di,cs:w[di+vga_attr_addrs]
-        mov ax,0b800
-        push ds
-        push ax
         mov bx,offset vga_workspace
 atrpokvga equ $-2
         lodsb
         mov es:b[si-1],al
         cs:xlatb
-        pop ds
+        mov ds,dx                       ;dx remains the same here (S O'B)
         mov b[di],al
         mov b[di+80],al
         mov b[di+160],al
@@ -984,19 +1253,26 @@ atrpokvga equ $-2
         mov b[di+400],al
         mov b[di+480],al
         mov b[di+560],al
-        pop ds
+        mov ds,bp                       ;S O'B
         pop di
         cmp al,al
         jmp vga_attr
-vga_nextblock:
-        jnz vga_attr2
-        cmp si,23296
-        if z jmp end_vid_update
-        cmp si,22528+256
-        mov si,16384+2048
-        if z jmp vga_3blocks
-        mov si,16384+4096
-        jmp vga_3blocks
+vga_nextblock:                  ;SI = 22528+n*256 (1,2,3)
+        mov cl,3
+        shl si,cl               ;SI = 49152+n*2048
+        add si,08000            ;SI = 16384+n*2048
+        cmp si,22528
+        if ne jmp vga_3blocks
+end_vid_update_vga:
+        cmp byte cs:coloremu,0ff
+        if ne jmp end_vid_update
+        mov es,cs:vgahcrborbuf
+        mov al,cs:newbor
+        mov es:[2],al
+        mov es:w[0],0
+        mov byte cs:bornochange,-3
+        mov byte cs:vgahcrborbufptr,3
+        jmp end_vid_update
 
 
 boremul_vga:
@@ -1012,9 +1288,11 @@ boremul_overscan:
         out dx,al
         mov al,ah
         out dx,al
-        mov al,49
+        mov al,49               ;overscan
         out dx,al
         mov al,ah
+        test byte cs:coloremu,0ff
+        if ne xor al,al         ;hi res color emulation -> no oversacn
         out dx,al
         ret
 
@@ -1056,6 +1334,7 @@ BOR_LOP2_CGA:
         REP STOSW
         RET
 
+#if plant
 BOREMUL_PLANT:
         MOV CX,0B800
         PUSH CX
@@ -1093,6 +1372,7 @@ blcp:   stosw
         mov es:[di+04000-2],bx
         loop blcp
         RET
+#endif
 
 BOREMUL_HERC:
         MOV CX,0B000
@@ -1168,6 +1448,7 @@ BOR_LOP2_HERC:
         STOSB
         RET
 
+#if xherc
 BOREMUL_X_HERC:
         MOV CX,0B000
         MOV ES,CX
@@ -1221,6 +1502,7 @@ BOR_LOP2_X_HERC:
         MOV CL,5
         REP STOSW
         RET
+#endif
 
 BOREMUL_EGA:
         and al,07
@@ -1288,7 +1570,7 @@ aac_lowbyte:
         inc di
         ret
 
-
+#if plant
 emulattr_plant:
         PUSH SI
         PUSH DI
@@ -1465,7 +1747,7 @@ atrpokc2        equ $-2
         INC SI
         JMP CONTINUE_EMULATING_plant
         RET
-
+#endif
 
 
 EMULATTR_EGA:
@@ -1931,7 +2213,7 @@ ATRPOK4 EQU $-2
 
 
 
-
+#if xherc
 EMULATTR_X_HERC:
         PUSH SI
         PUSH DI
@@ -2122,6 +2404,8 @@ ATRPOK8 EQU $-2
         INC SI
         JMP CONTINUE_EMULATING_X_HERC
         RET
+#endif
+
 
 SAVE_SCREEN:
         PUSHF
@@ -2210,5 +2494,5 @@ GOTIT:  MOV DH,BH
         RET
 
 startup ends
-                                                                                                                                                                                                              
-
+
+

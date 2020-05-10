@@ -1,4 +1,4 @@
-Sinclair ZX Spectrum Emulator 'Z80' v2.01a  -  20/5/93  -  by G.A. Lunter
+Sinclair ZX Spectrum Emulator 'Z80' v3.04  -  10/8/96  -  by G.A. Lunter
 
 
 
@@ -9,21 +9,29 @@ Sinclair ZX Spectrum Emulator 'Z80' v2.01a  -  20/5/93  -  by G.A. Lunter
 
 Contents:
 
-    5.1   The Spectrum
-    5.2   The Interface I
-    5.3   The SamRam
-    5.4   The Z80 microprocessor
-    5.5   File formats
+    5.1   The Spectrum 48K
+    5.2   The Spectrum 128K
+    5.3   The AY-3-8912 sound chip
+    5.4   The ZX Printer
+    5.5   The Interface I
+    5.6   The SamRam
+    5.7   The Multiface 128
+    5.8   The Z80 microprocessor
+    5.9   File formats
 
 
 
 
 
-5.1  The Spectrum
+5.1  The Spectrum 48K
+
+
+    In this section, the hardware of the 48K Spectrum is discussed. In this
+    section, 'Spectrum' by itself refers to the 48K machine only.
 
     The Spectrum is at the hardware level a very simple machine.  There's
-    the 16K ROM which occupies the lowest part of the address space, and 48K
-    of RAM which fills up the rest.  An ULA which reads the lowest 6912
+    the 16K ROM which occupies the lowest part of the address space, and
+    48K of RAM which fills up the rest.  An ULA which reads the lowest 6912
     bytes of RAM to display the screen, and contains the logic for just one
     I/O port completes the machine, from a software point of view at least.
 
@@ -42,14 +50,14 @@ Contents:
     activates the MIC output, and a one in bit 4 activates the EAR output
     (which sounds the internal speaker).  The real Spectrum also activates
     the MIC when the ear is written to; the emulator doesn't.  This is no
-    problem; MIC is only used for saving, and when saving the Spectrum never
-    sounds the internal speaker.  The upper three bits are unused.
+    problem; MIC is only used for saving, and when saving the Spectrum
+    never sounds the internal speaker.  The upper three bits are unused.
 
     If port FE is read from, the highest eight address lines are important
-    too.  A zero on one of these lines selects a particular half-row of five
-    keys:
+    too.  A zero on one of these lines selects a particular half-row of
+    five keys:
 
-      IN:    Reads keys (bit 0 to bit 4 inclusive)
+      IN:    Reads keys (bit 0 to bit 4 inclusive, in that order)
 
       #FEFE  SHIFT, Z, X, C, V            #EFFE  0, 9, 8, 7, 6
       #FDFE  A, S, D, F, G                #DFFE  P, O, I, U, Y
@@ -57,38 +65,39 @@ Contents:
       #F7FE  1, 2, 3, 4, 5                #7FFE  SPACE, SYM SHFT, M, N,
 
     A zero in one of the five lowest bits means that the corresponding key
-    is being pressed.  If more than one address line is made low, the result
-    is the logical AND of all single inputs, so a zero in a bit means that
-    at least one of the appropriate keys is pressed.  For example, only if
-    each of the five lowest bits of the result from reading from port 00FE
-    (for instance by XOR A/IN A,(FE)) is one, no key is pressed.
+    is being pressed.  If more than one address line is made low, the
+    result is the logical AND of all single inputs, so a zero in a bit
+    means that at least one of the corresponding keys are pressed.  For
+    example, only if each of the five lowest bits of the result from
+    reading from port 00FE (for instance by XOR A/IN A,(FE)) is one, no key
+    is pressed.
 
     A final remark about the keyboard.  It is connected in a matrix-like
-    fashion, with 8 rows of 5 columns, as is obvious from the above remarks.
-    Any two keys pressed simultaneously can be uniquely decoded by reading
-    from the IN ports, however, if more than two keys are pressed decoding
-    may not be uniquely possible.  For instance, if you press Caps shift, B
-    and V, the Spectrum will think also the Space key is pressed, and react
-    by giving the 'Break into Program' report.  This matrix behaviour is
-    also emulated - without it, Zynaps for instance won't pause when you
-    press 5,6,7,8 and 0 simultaneously.
+    fashion, with 8 rows of 5 columns, as is obvious from the above
+    remarks.  Any two keys pressed simultaneously can be uniquely decoded
+    by reading from the IN ports; however, if more than two keys are
+    pressed decoding may not be uniquely possible.  For instance, if you
+    press Caps shift, B and V, the Spectrum will think also the Space key
+    is pressed, and reacts by giving the 'Break into Program' report.  This
+    matrix behaviour is also emulated - without it, Zynaps for instance
+    won't pause when you press 5,6,7,8 and 0 simultaneously.
 
     Bit 5 (value 64) of IN-port FE is the ear input bit.  When the line is
     silent, its value is zero, except in the early Model 2 of the Spectrum,
     where it was one.  When there is a signal, this bit toggles.  The
     Spectrum loading software is not sensitive to the polarity of this bit
     (which it definitely should not be, not only because of this model
-    difference, but also because you cannot be sure the tape recorder
-    doesn't change the polarity of the signal recorded!) Some old programs
-    rely on the fact that bit 5 is always one (for instance Spinads); for
-    these programs the emulator can mimic a Model 2 Spectrum.
+    difference, but also because one cannot be sure the tape recorder
+    does not change the polarity of the recorded signal!)  Some old
+    programs rely on the fact that bit 5 is always one (for instance
+    Spinads); for these programs the emulator can mimic a Model 2 Spectrum.
 
     Bits 6 and 7 are always one.
 
     The ULA with the lower 16K of RAM, and the processor with the upper 32K
     RAM and 16K ROM are working independently of each other.  The data and
     address buses of the Z80 and the ULA are connected by small resistors;
-    normally, these do effectively decouple the buses.  However, if the Z80
+    normally, these effectively decouple the buses.  However, if the Z80
     wants to read of write the lower 16K, the ULA halts the processor if it
     is busy reading, and after it's finished it lets the processor access
     lower memory through the resistors.  A very fast, cheap and neat design
@@ -98,162 +107,512 @@ Contents:
     memory, the processor is halted sometimes.  This part of memory is
     therefore somewhat slower than the upper 32K block.  This is also the
     reason that you cannot write a sound- or save-routine in lower memory;
-    the timing won't be exact, and the music will sound harsh.  Also, INning
-    from port FE will halt the processor, because the ULA has to supply the
-    result.  Therefore, INning from port FE is a tiny bit slower on average
-    than INning from other ports; whilst normally an IN A,(nn) instruction
-    would take 11 T states, it takes 12.15 T states on average if nn=FE. See
-    below for more exact information.
+    the timing won't be exact, and the music will sound harsh.  Also,
+    INning from port FE will halt the processor, because the ULA has to
+    supply the result.  Therefore, INning from port FE is a tiny bit slower
+    on average than INning from other ports; whilst normally an IN A,(nn)
+    instruction would take 11 T states, it takes 12.15 T states on average
+    if nn=FE. See below for more exact information.
 
-    If the processor reads from a non-existing IN port, for instance FF, the
-    ULA won't stop, but nothing will put anything on the data bus.
-    Therefore, you'll read a mixture of FF's (idle bus), and screen and ATTR
-    data bytes (the latter being very scarce, by the way).  This will only
-    happen when the ULA is reading the screen memory, about 60% of the
-    1/50th second time slice in which a frame is generated.  The other 40%
-    the ULA is building the border or generating a vertical retrace.  This
-    behaviour is actually used in some program, for instance by Arkanoid,
-    and the emulator also emulates this behaviour.
+    If the processor reads from a non-existing IN port, for instance FF,
+    the ULA won't stop, but nothing will put anything on the data bus.
+    Therefore, you'll read a mixture of FF's (idle bus), and screen and
+    ATTR data bytes (the latter being very scarce, by the way).  This will
+    only happen when the ULA is reading the screen memory, 61.5% (192/312)
+    of the 1/50th second time slice in which a frame is generated.  The
+    other 38.5% of the time the ULA is building the border or generating a
+    vertical retrace.  This behaviour is actually used in some programs,
+    for instance by Arkanoid, and Z80 also emulates this.
 
     Finally, there is an interesting bug in the ULA which also has to do
     with this split bus.  After each instruction fetch cycle of the
     processor, the processor puts the I-R register 'pair' (not the 8 bit
-    internal Instruction Register, but the Interrupt and R registers) on the
-    address bus.  The lowest 7 bits, the R register, are used for memory
-    refresh.  However, the ULA gets confused if I is in the range 64-127,
-    because it thinks the processor wants to read from lower 16K ram very,
-    very often.  The ULA can't cope with this read-frequency, and regularly
-    misses a screen byte.  Instead of the actual byte, the byte previously
-    read is used to build up the video signal.  The screen seems to be
-    filled with 'snow'; however, the Spectrum won't crash, and program will
-    continue to run normally.  There's one program I know of that uses this
-    to generate a nice effect: Vectron.  (which has very nice music too by
-    the way).  This effect has not been implemented however - it's a bit
-    useless (but maybe I'll include it in the future).
+    internal Instruction Register, but the Interrupt and R registers) on
+    the address bus.  The lowest 7 bits, the R register, are used for
+    memory refresh.  However, the ULA gets confused if I is in the range
+    64-127, because it thinks the processor wants to read from lower 16K
+    ram very, very often.  The ULA can't cope with this read-frequency, and
+    regularly misses a screen byte.  Instead of the actual byte, the byte
+    previously read is used to build up the video signal.  The screen seems
+    to be filled with 'snow'; however, the Spectrum won't crash, and
+    program will continue to run normally.  There's one program I know of
+    that uses this to generate a nice effect: Vectron.  (which has very
+    nice music too by the way).  This effect has not been implemented
+    however - it's a bit useless (but maybe I'll include it in the future).
 
-    The processor has three interrupt modes, selected by the instructions IM
-    0, IM 1 and IM 2.  In mode 1, the processor simply executes a RST #38
-    instruction if an interrupt is requested.  This is the mode the Spectrum
-    is normally in.  The other mode that is commonly used is IM 2.  If an
-    interrupt is requested, the processor first builds a 16 bit address by
-    combining the I register (as the high byte) with whatever the
-    interrupting device places on the data bus.  The word at this address is
-    then called.  Rodnay Zaks in his book 'Programming the Z80' states that
-    only even bytes are allowed as low index byte, but that isn't true.  The
-    normal Spectrum contains no hardware to place a byte on the bus, and the
-    bus will therefore always read FF (because the ULA also doesn't read the
-    screen if it generates an interrupt), so the resulting index address is
-    256*I+0FF.  However, some not-so-neat hardware devices put things on the
-    data bus when they shouldn't, so later programs didn't assume the low
-    index byte was 0FF.  These programs contain a 257 byte table of equal
-    bytes starting at 256*I, and the interrupt routine is placed at an
-    address that is a multiple of 257.  A useful but not so much used trick
-    is to make the table contain FF's (or use the ROM for this) and put a
-    byte 18 hex, the opcode for JR, at FFFF.  The first byte of the ROM is a
-    DI, F3 hex, so the JR will jump to FFF4, where a long JP to the actual
-    interrupt routine is put.
+    The processor has three interrupt modes, selected by the instructions
+    IM 0, IM 1 and IM 2.  In mode 1, the processor simply executes a RST
+    #38 instruction if an interrupt is requested.  This is the mode the
+    Spectrum is normally in.  The other mode that is commonly used is IM 2.
+    If an interrupt is requested, the processor first builds a 16 bit
+    address by combining the I register (as the high byte) with whatever
+    the interrupting device places on the data bus.  The processor then
+    fetches the 16-bit address at this interrupt table entry, and finally
+    CALLs the subroutine at that address.  Rodnay Zaks in his book
+    'Programming the Z80' states that only even bytes are allowed as low
+    index byte, but that isn't true.  The normal Spectrum contains no
+    hardware to place a byte on the bus, and the bus will therefore always
+    read FF (because the ULA also doesn't read the screen if it generates
+    an interrupt), so the resulting index address is 256*I+0FF.  However,
+    some not-so-neat hardware devices put things on the data bus when they
+    shouldn't, so later programs didn't assume the low index byte was 0FF.
+    These programs contain a 257 byte table of equal bytes starting at
+    256*I, and the interrupt routine is placed at an address that is a
+    multiple of 257.  A useful but not so much used trick is to make the
+    table contain FF's (or use the ROM for this) and put a byte 18 hex, the
+    opcode for JR, at FFFF.  The first byte of the ROM is a DI, F3 hex, so
+    the JR will jump to FFF4, where a long JP to the actual interrupt
+    routine is put.
 
     In interrupt mode 0, the processor executes the instruction that the
-    interrupting device places on the data bus.  On a standard Spectrum this
-    will be the byte FF, coincidentally (...) the opcode for RST #38. But
-    for the same reasons as above, this is not really reliable.
+    interrupting device places on the data bus.  On a standard Spectrum
+    this will be the byte FF, coincidentally (...) the opcode for RST #38.
+    But for the same reasons as above, this is not really reliable.
 
     The 50 Hz interrupt is synchronized with the video signal generation by
     the ULA; both the interrupt and the video signal are generated by it.
     Many programs use the interrupt to synchronize with the frame cycle.
     Some use it to generate fantastic effects, such as full-screen
-    characters, full-screen horizon (Aquaplane) or pixel colour (Uridium for
-    instance).  Very many modern programs use the fact that the screen is
+    characters, full-screen horizon (Aquaplane) or pixel colour (Uridium
+    for instance).  Many modern programs use the fact that the screen is
     'written' (or 'fired') to the CRT in a finite time to do as much
-    time-consuming screen calculations as possible without causing character
-    flickering:  although the ULA has started displaying the screen for this
-    frame already, the electron beam will for a moment not 'pass'
-    this-or-that part of the screen so it's safe to change something there.
-    So the exact time in the 1/50 second time-slice at which the screen is
-    updated is very important.  Because the emulator updates the screen at
-    once, no single best solution can be given, and therefore the user can
-    select one of three possibilities (low, normal or high video
+    time-consuming screen calculations as possible without causing
+    character flickering:  although the ULA has started displaying the
+    screen for this frame already, the electron beam will for a moment not
+    'pass' this-or-that part of the screen so it's safe to change something
+    there. So the exact time in the 1/50 second time-slice at which the
+    screen is updated is very important.  Normally the emulator updates the
+    entire screen at once (50 times a second), and no best solution can be
+    given as to when exactly the screen should be updated.  The user can
+    select one of three possibilities (low, normal and high video
     synchronisation, corresponding to a screen update after 1/200, 2/200 or
-    3/200 of a (relative) second after a Z80 interrupt) which gives the best
-    results.  Try for instance Zynaps; with normal video synchronisation the
-    top four or five lines of the background move out-of-phase with the
-    rest, and your space-ship flickers in that region.  With low video
-    synchronisation the background moves smoothly but the sprites flicker in
-    all parts of the screen.  Only with high video sync everything moves
-    smoothly and doesn't flicker.
+    3/200 of a (relative) second after a Z80 interrupt) to try to get the
+    best results.  Try for instance Zynaps; with normal video
+    synchronisation the top four or five lines of the background move
+    out-of-phase with the rest, and your space-ship flickers in that
+    region.  With low video synchronisation the background moves smoothly
+    but the sprites flicker in all parts of the screen.  Only with high
+    video sync everything moves smoothly and doesn't flicker.
 
-    This emulator does not try to emulate the really time-critical border
-    pattern effects (except when loading, but the width of the loading
-    stripes are not quite right because also PC video timings come into
-    play), but maybe I'll include it in the future.  I will need some hard
-    data on video timings then, and I've figured these out recently.  Here
-    they are.
+    In Hi-resolution colour emulation mode, however, the emulator makes a
+    copy of every screen- and attribute-line in a buffer at the exact time
+    the ULA would display it.  Also, the exact times the border colour is
+    changed is stored.  Using this information the emulator builds the
+    screen; in this way, what you see on your PC monitor is exactly what a
+    real Spectrum would display on a television.  Remember Aquaplane, with
+    its full-width horizon?
 
     Each line takes exactly 224 T states.  After an interrupt occurs, 64
     line times pass before the byte 16384 is displayed.  At least the last
     48 of these are actual border-lines.  I could not determine whether my
-    monitor didn't display the others or whether it was in vertical retrace,
-    but luckily that's not really important.  Then the 192 screen+border
-    lines are displayed, followed by about 56 border lines again.  56.5
-    border lines would make up exactly 70000 T states, 1/50th of 3500000.
-    However, I noticed that the frequency of the 50 Hz interrupt (measured
-    in 1/T states!) changes very slightly when my Spectrum gets hot (I think
-    it has something to do with the relative change of the frequencies of
-    the two crystals in the Spectrum), so the time between interrupts will
-    probably not be exactly 70000 T states. Anyway, whether the final border
-    block is of fixed or variable length doesn't concern us either, the
-    timings of the start and end of the screen, which are the timings of
-    real interest, are fixed.
+    monitor didn't display the others or whether it was in vertical
+    retrace, but luckily that's not really important.  Then the 192
+    screen+border lines are displayed, followed by 56 border lines again.
+    This makes a total of 312 lines of 224 T states, or 69888 T states,
+    which is, at 3.5 MHz, very nearly 1/50th of a second.
 
     Now for the timings of each line itself.  I define a screen line to
     start with 256 screen pixels, then border, then horizontal retrace, and
     then border again.  All this takes 224 T states.  Every half T state a
     pixel is written to the CRT, so if the ULA is reading bytes it does so
-    each 4 T states (and then it reads two: a screen and an ATTR byte).  The
-    border is 48 pixels wide at each side.  A video screen line is therefore
-    timed as follows: 128 T states of screen, 24 T states of right border,
-    48 T states of horizontal retrace and 24 T states of left border.
+    each 4 T states (and then it reads two: a screen and an ATTR byte). The
+    border is 48 pixels wide at each side.  A video screen line is
+    therefore timed as follows: 128 T states of screen, 24 T states of
+    right border, 48 T states of horizontal retrace and 24 T states of left
+    border.
 
     When an interrupt occurs, the running instruction has to be completed
-    first.  So the start of the interrupt is fixed relative to the start of
-    the frame up to the length of the last instruction in T states.  If the
-    processor was executing a HALT (which, according to the Z80 books I
-    read, is effectively many NOPs), the interrupt routine starts at most 3
-    T states away from the start of the frame.  Of course the processor also
-    needs some T states to store the program counter on the stack, read the
-    interrupt vector and jump to the routine, but since I cannot determine
-    that by only using the Spectrum, it is useless information by that very
-    reason alone!
+    first.  The Z80 samples the state of its interrupt request line at the
+    start of the last T state of each instruction.  The Z80 starts to act
+    upon an interrupt request at least 1, and at most 1+23 T states after
+    it is made active, as the slowest instructions (e.g. INC (IX+d), RL
+    (IX+d), EX (SP),IX) take 23 T states).  This difference, which may be
+    hard to control, is sometimes significant in practice for hi-resolution
+    colour effects.  When the Z80 is executing a HALT instruction, it is
+    effectively executing NOPs and not incrementing the PC until an
+    interrupt is received (and interrupts are enabled).  As a NOP takes 4
+    clocks to execute, in this case the start of the interrupt is fixed up
+    to 4 T states.
 
-    Now when to OUT to the border to change it at the place you want? First
-    of all, you cannot change the border within a 'byte', an 8-pixel chunk.
-    If we forget about the screen for a moment, if you OUT to port FE after
-    14326 to 14329 T states (including the OUT) from the start of the IM 2
-    interrupt routine, the border will change at exactly the position of
-    byte 16384 of the screen.  The other positions can be computed by
-    remembering that 8 pixels take 4 T states, and a line takes 224 T
-    states.  You would think that OUTing after 14322 to 14325 T states, the
-    border would change at 8 pixels left of the upper left corner of the
-    screen.  This is right for 14322, 14323 and 14324 T states, but if you
-    wait 14325 T states the ULA happens to be reading byte 16384 (or 22528,
-    or both) and will halt the processor for a while, thereby making you
-    miss the 8 pixels.  This exception happens again after 224 T states, and
-    again after 448, an so forth.  These 192 exceptions left of the actual
-    screen rectangle are the only ones; similar things don't happen at the
-    right edge because the ULA don't need to read things there - it has just
-    finished!
+    In all interrupt modes, the interrupt acknowledge cycle is basically an
+    ordinary M1 instruction fetch cycle with two wait states added, taking
+    up 5 T states.  Then, in mode 0, any instruction that is placed on the
+    bus in the acknowledge cycle is executed, whereas in mode 1 this is
+    always RST #38.  The Spectrum ordinarily leaves the bus floating at
+    interrupt time, so that in mode 0 also a RST #38 (opcode #FF) is
+    executed.  A RST #38 normally takes 11 T states, so that the complete
+    mode 0 or 1 (or 0/1) interrupt takes 13 T states.  (Thanks to Ian
+    Collier for correcting this in the FAQ version)
 
-    As noted above, reading or writing in low ram (or OUTing to the ULA)
-    causes the ULA to halt the processor.  When and how much? The processor
-    is halted each time you want to access the ULA or low memory and the ULA
-    is busy reading.  Of the 312.5 'lines' the ULA generates, only 192
-    contain actual screen pixels, and the ULA will only read bytes during
-    128 of the 224 T states of each screen line.  But if it does, the
-    processor is halted for exactly 4 T states.
+    A mode 2 interrupt starts off with a 7 T state M1 cycle in which the
+    interrupt vector is read, followed by two stack-write cycles of 3 T
+    states each in which the program counter is pushed, and two memory-read
+    cycles of 3 T's each that read the interrupt address.  That is 19 T's.
+
+    Ian Collier states that an NMI cycle takes 15 T states.  My reference
+    (Mostek Technical Manual of the Z80) breaks it down as follows: a 5 T
+    M1 cycle in which the opcode is ignored, then two 3-T stack-write
+    cycles to push the program counter, which adds up to 11 T states.  I
+    haven't done any testing, so I cannot say anything definite here.
+
+    The ZX81 hardware generates a WAIT only 16 T states before it generates
+    an NMI, which, by some combined hardware and software wizardry,
+    generates one scanline on the television screen.  It seems therefore
+    that by executing a whole lot of slow instructions in a block, it is
+    possible to jam the horizontal synchonisation of the ZX81 video signal.
+    Has this ever been tried?
+
+    Now when to OUT to the border to change it at the place you want?
+    First of all, you cannot change the border within a 'byte', an 8-pixel
+    chunk. If we forget about the screen for a moment, if you OUT to port
+    FE after 14326 to 14329 T states (including the OUT) from the start of
+    the IM 2 interrupt routine, the border will change at exactly the
+    position of byte 16384 of the screen.  The other positions can be
+    computed by remembering that 8 pixels take 4 T states, and a line takes
+    224 T states.  You would think that OUTing after 14322 to 14325 T
+    states, the border would change at 8 pixels left of the upper left
+    corner of the screen.  This is right for 14322, 14323 and 14324 T
+    states, but if you wait 14325 T states the ULA happens to be reading
+    byte 16384 (or 22528, or both) and will halt the processor for a while,
+    thereby making you miss the 8 pixels.  This exception happens again
+    after 224 T states, and again after 448, an so forth.  These 192
+    exceptions left of the actual screen rectangle are the only ones;
+    similar things don't happen at the right edge because the ULA don't
+    need to read things there - it has just finished!
+
+    As noted above, reading or writing in low ram (or OUTing to the ULA!)
+    causes the ULA to halt the processor.  When and how much?  The
+    processor is halted each time you want to access the ULA or low memory
+    and the ULA is busy reading.  Of the 312 'lines' the ULA generates,
+    only 192 contain actual screen pixels, and the ULA will only read bytes
+    during 128 of the 224 T states of each screen line.  But if it does,
+    the processor seems to be halted for 64 T states.  It is not clear to
+    me when, and for how long exactly, the ULA halts the processor.
+    Sometimes the ULA even stops the processor when it is not interfering
+    with it (when it is busy making the border left or right of the screen
+    rectangle).
+
+    For 128K timings, which are slightly different, see the next section.
 
 
 
-5.2  The Interface I
+
+5.2  The Spectrum 128K
+
+
+    In comparison to the Spectrum 48K, and on the hardware side, the
+    Spectrum 128 offers more RAM (128K, you guessed it), more ROM (32K
+    instead of 16K), a soundchip, and a serial printer port.  Nothing
+    really spectacular.
+
+    Another difference with the 48K Spectrum is in the timing of the video
+    signals.  You can see this if you save something: the bars in the
+    border move differently.  The really important difference of the 128K
+    with respect to the video is that the 128K ULA is more relaxed in
+    giving the Z80 access to (screen) memory.  This allows programs to make
+    hi-resolution colour effects not only in the border, but also on the
+    screen itself.  Many 128K programs use this effect.  Note however that,
+    although the 128K ULA is more relaxed towards memory access, it does
+    still halt the Z80 occasionally.  Partly for this reason it is
+    impossible to have hi-res colour effect over the entire screen; there is
+    only time to change approximately half of it.  (This does not seem to
+    be true; the Shock Megademo manages to move 1-pixel thick lines up on
+    the screen one pixel per frame on the whole screen.  Very well done
+    indeed!  This is the only program I know to feature hi-res colour effect
+    over the entire width of the screen.  It might be, however, that this
+    program only changes the entire ATTR line every two scan line times.)
+
+    The basic video timings, with the Z80 out of the way, are as follows.
+    Each video line takes 228 T states, 4 T states more than on the 48K
+    Spectrum.  It starts with 128 T states of screen pixels (or border).
+    Then there's border, horizontal retrace and border again, of 100 T
+    states.  A complete '50 Hz' frame consists of 311 video lines (of which
+    a few are vertical retraces), that is, 1 less than for 48K models.  A
+    complete frame is 311 x 228 = 70908 T states long.
+
+    I don't know whether the 128K model uses a different crystal.  If not,
+    one frame on the Spectrum 128K is 1.5% longer than a 48K frame.
+
+    A quote from the +2 manual, page 279; Cliff Lawson writes: "For the
+    contended RAM [pages 4-7] (which shares time between the video
+    circuitry and the processor), during 128 out of every 228 CPU T states
+    (1 TV line), and during 192 out of every 311 TV lines (1 frame) the CPU
+    is allowed only 1 access to contended RAM in every 8 T states.  The CPU
+    is controlled by introducing wait states".  My guess is this holds true
+    for the 128K too.
+
+    Directly after an interrupt is generated by the ULA (so slightly before
+    the Z80 acts upon it), 63 video lines are written to the CRT.  A first
+    few may be verical retraces; this is difficult to find out without an
+    oscilloscope, but luckily we don't need this information.  Then 192
+    screen lines are written, and then 56 border lines and (possibly)
+    vertical retrace lines.  The first screen byte is written to the screen
+    14364 T states after the interrupt was generated.
+
+    Then the other things.  Memory is arranged in banks of 16K.  The bank
+    at 0000-3FFF contains either the original 48K ROM or the new 128K ROM.
+    The latter is active at reset.  The bank at 4000-7FFF always contains
+    RAM page 5.  The bank at 8000-BFFF is always page 2.  The bank at
+    C000-FFFF contains any page from 0-7, including page 2 and 5.  If page
+    2 or 5 is enabled in the high bank, every byte written in this bank is
+    mirrored in the other bank at 4000 or at 8000, and vice versa.  The
+    screen information is read, by the ULA, from the first 6912 bytes of
+    either page 5 or page 7.
+
+    All this is controlled by writing to port 7FFD (or, in fact, by writing
+    to any address with bit 15 and 1 zero; don't use this fact, though; it
+    does not work on the +3, where there's another port 1FFD, and neither
+    will this work in full generality on the emulator.)
+
+
+       Port #7FFD:
+
+       Bit    7   6   5   4   3   2   1   0
+            ┌───┬───┬───┬───┬───┬───┬───┬───┐
+       WRITE│   │   │ P │ R │ S │  page no  │
+            └───┴───┴───┴───┴───┴───┴───┴───┘
+
+
+    Bits 0-2 determine which page is to appear in bank C000-FFFF.  If S=0,
+    the ULA reads the screen from page 5, otherwise it reads page 7.  If
+    R=0, the 128K Rom is selected in bank 0000-3FFF; otherwise the 48K Rom.
+    If P=1, port #7FFD will be disabled and keep its value until the
+    computer is reset.  This bit is set if you select 48K Spectrum in the
+    128K startup menu, so that no 48K program is able to (accidentally)
+    swap itself into oblivion.
+
+    The sound chip of the Spectrum 128 is described in the next section.
+
+
+
+
+5.3  The AY-3-8912 sound chip.
+
+
+    The following section was put together using information collected from
+    comp.sys.sinclair.  Thanks, and large parts of the information below,
+    are due to Alastair Booker, who put a detailed description on the net
+    in April '95, and to Ian Collier who recently carried out some thorough
+    investigations on the AY chip.
+
+    This chip is used in for instance the Sinclair ZX Spectrum 128/+2/+3,
+    Amstrad CPC 464/664/6128, Mattel Intellivision, Atari ST, Sega Master
+    System and the MSX.
+
+    The AY has 16 internal registers.  A register is selected by OUTing the
+    register number in bits 0-3 to port #FFFD (only A15, A14 and A1 are
+    decoded).  Then write to a register by OUTing to #BFFD, read it by
+    INning from #FFFD.  When reading from a register, unused bits are
+    always 0.  Reading always yields the value last written to the
+    register, except for R14 and R15 when bit 6 or 7 of R7 are reset (R14 /
+    R15 used for input).  On the AY-3-8912, when R7 bit 7 is reset, R15
+    always reads 255.  Writing to R14 or R15 when they are selected for
+    input does load the output register.
+
+    Here are the names of the AY registers:
+
+        Register        Name                                Bits used:
+
+        R0              Fine tone control (FTC) channel A      0-7
+        R1              Coarse tone control (CTC) channel A    0-3
+        R2              FTC channel B                          0-7
+        R3              CTC channel B                          0-3
+        R4              FTC channel C                          0-7
+        R5              CTC channel C                          0-3
+        R6              Noise generator pitch control          0-4
+        R7              Mixer and I/O control                  0-7
+        R8              Amplitude channel A                    0-4
+        R9              Amplitude channel B                    0-4
+        R10             Amplitude channel C                    0-4
+        R11             Envelope fine period control           0-7
+        R12             Envelope coarse period control         0-7
+        R13             Envelope control                       0-3
+        R14             RS232 i/o                              0-7
+        R15             I/O port 2                             0-7
+
+    The AY chip consists of three tone generators, one noise generator, an
+    envelope generator, three mixers, and three volume generators.
+
+    Tone generator A is controlled by R0 and R1.  It contains a 12 bit up
+    counter which is reset to 0 whenever it is larger than or equal to the
+    value of R1R0 (most significant bits are in R1), and is counted up at a
+    frequency of 221660 Hz (which is the driving frequency of the chip
+    divided by 8). Loading R0 or R1 takes effect directly.  If the internal
+    counter is below the new value, it simply continues; if it is above, it
+    immediately resets to 0.  Every time the internal counter is reset, the
+    tone generator changes it output from 0 to 1 or vice versa, so the
+    frequency of the tone generated is 110830/R1R0 Hz (one period consists
+    of two transitions). If R1R0 contains 0, the counter behaves as if R1R0
+    contained 1.
+
+    The noise generator contains a 5 bit up counter, which is reset to 0
+    whenever it is >= R6.  It is counted up at a frequency of 110830 Hz
+    (driving frequency divided by 16) [1].  Every time it reaches zero, it
+    randomly chooses 0 or 1 as its new output [2].  When R6 is zero, the
+    noise generated is the same as when R6 is 1.  Changes to R6 take effect
+    only when the internal counter reaches 0.
+
+
+       Bit      7    6    5    4    3    2    1    0
+             ┌────┬────┬────┬────┬────┬────┬────┬────┐
+       R7    │ D2 │ D1 │ Nc │ Nb │ Na │ Tc │ Tb │ Ta │
+             └────┴────┴────┴────┴────┴────┴────┴────┘
+
+
+    If D1 is 1, R14 acts as output register (RS232 output: bit 2 is CTS,
+    bit 3 is data output); when it is 0 R14 acts as input register (bit 6
+    is DTR [3]).  D2 is ignored as the AY chip has only one I/O register;
+    the bit and its corresponding register are present however.  Reading
+    R15 in input mode always yields 255.  Changes made to R7 take effect
+    immediately.
+
+    The noise and tone output of a channel is combined in the mixer in the
+    following way:
+
+        Output_A = (Tone_A OR Ta) AND (Noise OR Na)
+
+    Here Tone_A is the binary output of tone generator A, and Noise is the
+    binary output of the noise generator.  Note that setting both Ta and Na
+    to 1 produces a constant 1 as output.  Also note that setting both Ta
+    and Na to 0 produces bursts of noise and half-periods of constant
+    output 0.
+
+    Each binary tone channel output is fed to a separate volume generator.
+    Each volume generator is controlled by its amplitude register (R8 for
+    channel A) and the 4-bit output of the envelope controller.
+
+
+       Bit      7    6    5    4    3    2    1    0
+             ┌────┬────┬────┬────┬────┬────┬────┬────┐
+       R8    │    │    │    │ Ev │ V3 │ V2 │ V1 │ V0 │
+             └────┴────┴────┴────┴────┴────┴────┴────┘
+
+
+    If Ev=0, the current volume is given by V3V2V1V0.  If Ev=1, the current
+    volume is given by the output of the envelope generator.  The volume
+    controller produces an output voltage proportional to its channel's
+    binary output value times the current volume.  These analogue outputs
+    are then added together to give the final output (this is done outside
+    the chip actually).  Note that even when a channel is disabled (say Ta
+    = Na = 1), changing the volume level changes the final output, as the
+    binary tone channel output is constant and equal to 1, not 0.  Changes
+    to the amplitude registers take effect immediately.
+
+    The envelope generator is controlled by R11, R12 and R13.
+
+
+       Bit     7  6  5  4      3         2         1        0
+             ┌──┬──┬──┬──┬──────────┬────────┬───────────┬──────┐
+       R13   │  │  │  │  │ Continue │ Attack │ Alternate │ Hold │
+             └──┴──┴──┴──┴──────────┴────────┴───────────┴──────┘
+
+
+    The envelope generator contains a 16-bit up counter, operated at a
+    frequency of 110830 Hz.  The lowest frequency attainable by the
+    envelope clock is therefore 1.7 Hz.  If R12R11 contains 0, the clock
+    runs at 110830 Hz; otherwise it runs at 110830/R12R11 Hz.  The envelope
+    generator is reset by writing to R13 (but not by writing to R11 or
+    R12); otherwise it works just as the other counters.
+
+    Each time the envelope generator up counter is reset, it produces a
+    envelope clock tick.  A 'period' is the time taken by 16 clock ticks.
+    The output of the envelope generator during the first period is as
+    follows.  If Attack = 1, the output starts off at 0 and at each clock
+    tick is increased by 1 until it reaches 15.  If Attack = 0, the output
+    starts off at 15 and is falls to 0.
+
+    The output in the subsequent periods is 0 if Continue = 0.  Otherwise,
+    first the (internal) 'Attack' bit is toggled if Alternate is set,
+    otherwise it doesn't change.  How if Hold = 1, the output is a constant
+    15 in this and subsequent periods if Attack = 1, otherwise it is a
+    constant 0.  If Hold = 0, the envelope generator behaves just as in the
+    first period (except that Attack has possibly changed).  To sum it up:
+
+
+        0,1,2,3  \__________     single decay then off
+
+        4,5,6,7  /|_________     single attack then off
+
+        8        \|\|\|\|\|\     repeated decay
+
+        9        \__________     single decay then off
+
+        10       \/\/\/\/\/\     repeated decay-attack
+                   _________
+        11       \|              single decay then hold
+
+        12       /|/|/|/|/|/     repeated attack
+                  __________
+        13       /               single attack then hold
+
+        14       /\/\/\/\/\/     repeated attack-decay
+
+        15       /|_________     single attack then off
+
+
+    If the envelope generator is used to generate a tone, its frequency is
+    either 110830/(16*R12R11) Hz (R13 = 8 or 12) or 110830/(32*R12R11) Hz
+    (R13 = 10 or 14).
+
+
+    [1] This has been checked by Pierre Guerrier using an oscilloscope.
+    [2] The algorithm used for the pseudo random output is not known.  It
+        seems not to be too good, as sounds vaguely similar to tape loading
+        sounds are audible if you set R6 to 31.
+    [3] I don't know which bit is data input; it is probably not bit 3.
+
+
+
+
+5.4  The ZX Printer
+
+
+    As always, very Sinclair, this is a simple but ingenious piece of
+    equipment.  The ZX Printer is controlled through one I/O port, namely
+    #FB.  It is decoded using A2 only.  Port #FB:
+
+
+       Bit      7    6    5    4    3    2    1    0
+             ┌────┬────┬────┬────┬────┬────┬────┬────┐
+       READ  │styl│  0 │    │    │    │    │    │ enc│
+             └────┴────┴────┴────┴────┴────┴────┴────┘
+
+             ┌────┬────┬────┬────┬────┬────┬────┬────┐
+       WRITE │Data│    │    │    │    │ Mot│Slow│    │
+             └────┴────┴────┴────┴────┴────┴────┴────┘
+
+
+    To print, first read port #FB and check that bit 6 is 0 to make sure
+    that the printer is attached.  The printer motor is started by writing
+    a byte 0 to #FB (Mot=0).  Then check bit 7 until it goes high; this
+    means that the printer head is in the starting position.  A line is
+    printed as follows.  Wait for bit 0 (encoder) to go high, and write a
+    bit of data (1=black dot), and do this 256 times.  The Spectrum ROM
+    makes the 'Slow' bit 1 in the last two lines; this ensures that the
+    printer head stops at the start of the new line, instead of halfway
+    into it.  Stop the printer by writing a byte 4.  See #0EF4 in the ROM
+    for the relevant routine.
+
+    The emulator returns #FF on a port #FB IN if there is no printer
+    attached to the LPT port selected for ZX Printer output.  If the
+    printer is off-line, busy, or out of paper, the emulator will usually
+    return #FF too, so that the Spectrum program will not even consider to
+    print, unless you set option -xj, as then the emulator will return 1 so
+    that the program will try to print, and will wait for the printer to go
+    on line.  The reason for including the -xj switch is that usually the
+    status lines of the printer are not too reliable, so that a Spectrum
+    program may halt on a COPY statement even if there's no printer
+    attached (e.g. with SuperSpy, which makes screendumps on the ZX Printer
+    without asking).  In the inner printing loop, the ROM does not check
+    for BREAKs, so that the encoder bit is always high to prevent locking
+    the emulated Spectrum.  If the printer is happy to accept data, the
+    emulator returns #81.
+
+
+
+
+5.5  The Interface I
+
 
     The Interface I is quite complicated.  It uses three different I/O
     ports, and contains logic to page and unpage an 8K ROM if new commands
@@ -288,9 +647,9 @@ Contents:
 
     Bits DTR and CTS are used by the RS232 interface.  The WAIT bit is used
     by the Network to synchronise, GAP, SYNC, WR_PROT, ERASE, R/_W, COMMS
-    CLK and COMMS DATA are used by the microdrive system.  If the microdrive
-    is not being used, the COMMS DATA output selects the function of bit 0
-    of out-port F7:
+    CLK and COMMS DATA are used by the microdrive system.  If the
+    microdrive is not being used, the COMMS DATA output selects the
+    function of bit 0 of out-port F7:
 
 
        Bit      7    6   5   4   3   2   1       0
@@ -309,13 +668,15 @@ Contents:
 
 
 
-5.3  The SamRam
+
+5.6  The SamRam
+
 
     The SamRam contains a 32K static CMOS Ram chip, and some I/O logic for
-    port 31.  If this port is read, it returns the position of the joystick,
-    as a normal Kempston joystickinterface would.  If written to, the port
-    controls a programmable latch chip (the 74LS259) which contains 8
-    latches:
+    port 31.  If this port is read, it returns the position of the
+    joystick, as a normal Kempston joystickinterface would.  If written to,
+    the port controls a programmable latch chip (the 74LS259) which
+    contains 8 latches:
 
 
        Bit    7   6   5   4   3   2   1   0
@@ -349,34 +710,65 @@ Contents:
 
     At reset, all latches are 0.  If an OUT 31,5 is issued, only a reset
     will give you control over the latches again.  The write protect latch
-    is not emulated; you're never able to write the emulated CMOS ram in the
-    emulator.  Latch 4 will pull up the M1 output of the Z80.  The Interface
-    I won't page the ROM anymore then.
+    is not emulated; you're never able to write the emulated CMOS ram in
+    the emulator.  Latch 4 pulls up the M1 output at the expansion port of
+    the Spectrum.  The Interface I won't page its ROM anymore then.
 
 
 
-5.4  The Z80 microprocessor
 
-    The Z80 processor is quite straightforward, and contains to my knowledge
-    no interesting bugs or quirks.  However, it has some undocumented
-    features.  Some of these are quite useful, and some are not, but since
-    many programs use the useful ones, and a few programs use the weird
-    ones, I tried to figure them out and emulate them as best as I could.
-    There is a Z80 emulator around, intended as a CP/M emulator, which halts
-    the program if an undocumented opcode is encountered.  I don't think
-    this makes sense.  ZiLOG doesn't dictate the law, the programs which use
-    the processor's features do!
+5.7  The Multiface 128
 
-    Most Z80 opcodes are one byte long, not counting a possible byte or word
-    operand.  The four opcodes CB, DD, ED and FD are shift opcodes: they
-    change the meaning of the opcode following them.
 
-    There are 248 different CB opcodes.  The block CB 30 to CB 37 is missing
-    from the official list.  These instructions, usually denoted by the
-    mnemonic SLL, Shift Left Logical, shift left the operand and make bit 0
-    always one.  Bounder and Enduro Racer use them.  The SamRam monitor can
-    disassemble these and uses the mnemonic SLL.  These instructions are
-    quite commonly used.
+    This device consists of an 8K rom, paged into the area 0-8191, and 8K
+    of ram, paged into 8192-16383, and a latch storing the screen select
+    bit of the Spectrum 128K (bit 3 of OUT-port #7FFD), which would
+    otherwise be impossible to know (the Disciple requires the user to
+    press Y or N according to whether the screen changed at some point of
+    the snapshot procedure, in order to get hold of this bit.)
+
+    The Multiface rom and ram pages have highest priority, higher than both
+    the ordinary rom (48K or 128K) or the Interface 1, Disciple or Plus D
+    roms.
+
+    The Multiface memory is paged in when an NMI occurs, or when the
+    processor reads from IN address #BF.  Bit 7 of the returned byte is the
+    screen select bit (or, on 48K machines, the value of bit 3 of the byte
+    last written to port #7FFD - unlikely to be useful.)  Other bits follow
+    the floating bus.
+
+    The Multiface memory is paged out by reading from port #3F.  The
+    Multiface does not put bits on the bus.
+
+
+
+
+5.8  The Z80 microprocessor
+
+
+    The Z80 processor is quite straightforward, and contains to my
+    knowledge no interesting bugs or quirks.  However, it has some
+    undocumented features.  Some of these are quite useful, and some are
+    not, but since many programs use the useful ones, and a few programs
+    use the weird ones, I tried to figure them out and emulate them as best
+    as I could.  There is a Z80 emulator around, intended as a CP/M
+    emulator, which halts the program if an undocumented opcode is
+    encountered.  I don't think this makes sense.  ZiLOG doesn't dictate
+    the law, the programs which use the processor's features do!
+
+    In section 5.1 there is some information on Z80 interrupt timings in
+    different modes.
+
+    Most Z80 opcodes are one byte long, not counting a possible byte or
+    word operand.  The four opcodes CB, DD, ED and FD are 'shift' opcodes:
+    they change the meaning of the opcode following them.
+
+    There are 248 different CB opcodes.  The block CB 30 to CB 37 is
+    missing from the official list.  These instructions, usually denoted by
+    the mnemonic SLL, Shift Left Logical, shift left the operand and make
+    bit 0 always one.  Bounder and Enduro Racer use them, to name just two.
+    The SamRam monitor can disassemble these and uses the mnemonic SLL.
+    These instructions are quite commonly used.
 
     The DD and FD opcodes precede instructions using the IX and IY
     registers.  If you look at the instructions carefully, you see how they
@@ -389,44 +781,146 @@ Contents:
 
     A DD opcode simply changes the meaning of HL in the next instruction.
     If a memory byte is addressed indirectly via HL, as in the second
-    example, a displacement byte is added.  Otherwise the instruction simply
-    acts on IX instead of HL.  (A notational awkwardness, that will only
-    bother assembler and disassembler writers: JP (HL) is not indirect; it
-    should have been denoted by JP HL) If a DD opcode precedes an
-    instruction that doesn't use the HL register pair at all, the
-    instruction is executed as usual.  However, if the instruction uses the
-    H or L register, it will now use the high or low halves of the IX
-    register! Example:
+    example, a displacement byte is added.  Otherwise the instruction
+    simply acts on IX instead of HL.  (A notational awkwardness, that will
+    only bother assembler and disassembler writers: JP (HL) is not
+    indirect; it should have been denoted by JP HL.)  If a DD opcode
+    precedes an instruction that doesn't use the HL register pair at all,
+    the instruction is executed as usual.  However, if the instruction uses
+    the H or L register, it will now use the high or low halves of the IX
+    register!  Example:
 
         44              LD B,H
         FD 44           LD B,IYh
 
-    These types of inofficial instructions are used by very many programs.
-    By the way, many DD or FD opcodes after each other will effectively be
+    These types of inofficial instructions are used in many programs.  By
+    the way, many DD or FD opcodes after each other will effectively be
     NOPs, doing nothing except repeatedly setting the flag 'treat HL as IX'
-    (or IY) and taking up 4 T states.  (But try to let MONS disassemble such
-    a block.)
+    (or IY) and taking up 4 T states.  Note that the FD or DD 'opcode' is
+    treated as part of an instruction, so that the Z80 cannot be interrupted
+    during execution of such a block.  (This last remark was not checked;
+    it was remarked by someone on comp.sys.sinclair)
 
-    I've never seen a program using inofficial ED instructions, and except
-    for ED 6B nn, a long version of 2A nn, LD HL,(nn) I don't know any.  I
-    am pretty sure however that they exist, but I never took the trouble to
-    test them all.
+    When (parts of) HL are used both as source and target, above rule is
+    ambiguous.  The special cases are: LD H,(IX+d) and LD L,(IX+d), and
+    LD IXl,IXl / LD IXl,IXh / LD IXh,IXl / LD IXh,IXh.  Things like
+    LD IXh,(IX+d) or LD H,IXh do not exist.
+
+    Two instructions do not obey the DD/FD rule.  They are EX DE,HL and
+    EXX.  These instructions take 4 T states to execute, and are therefore
+    most probably implemented by toggling a flag that changes the reference
+    to the registers; no data is actually being moved, which explains why
+    they cannot operate on IX or IY.
+
+    The doubly-shifted opcodes that start with DD CB and DD ED also do not
+    follow the standard rule.  If a DD or FD precedes an ED instruction,
+    it is ignored.  ED instructions never operate on the IX or IY register.
+    With CB instructions, the situation is more interesting.  Every DD CB
+    instruction operates on (IX+nn), but also copies the result to the
+    specified register, except when it is (HL).  For example,
+
+        CB CE           SET 0,(HL)
+        CB C0           SET 0,B
+        DD CB nn CE     SET 0,(IX+nn)
+        DD CB nn C0     SET 0,(IX+nn) ; copy result to B
+
+    (The information about the inofficial CB instructions was given to me
+    by Arnt Gulbrandsen, and originated from David Librik.)
+
+    There are a number of inofficial ED instructions, but none of them are
+    very useful.  The ED opcodes in the range 00-3F and 80-FF (except for
+    the block instructions of course) do nothing at all but taking up 8 T
+    states and incrementing the R register by 2.  Most of the unlisted
+    opcodes in the range 40-7F do have an effect, however.  The complete
+    list: (* = not official)
+
+        ED40   IN B,(C)                 ED60   IN H,(C)
+        ED41   OUT (C),B                ED61   OUT (C),H
+        ED42   SBC HL,BC                ED62   SBC HL,HL
+        ED43   LD (nn),BC               ED63 # LD (nn),HL
+        ED44   NEG                      ED64 * NEG
+        ED45   RETN                     ED65 * RET
+        ED46   IM 0                     ED66 * IM 0
+        ED47   LD I,A                   ED67   RRD
+        ED48   IN C,(C)                 ED68   IN L,(C)
+        ED49   OUT (C),C                ED69   OUT (C),L
+        ED4A   ADC HL,BC                ED6A   ADC HL,HL
+        ED4B   LD BC,(nn)               ED6B # LD HL,(nn)
+        ED4C * NEG                      ED6C * NEG
+        ED4D   RETI                     ED6D * RET
+        ED4E * IM 0                     ED6E * IM 0
+        ED4F   LD R,A                   ED6F   RLD
+        ED50   IN D,(C)                 ED70 # IN (C)
+        ED51   OUT (C),D                ED71 * OUT (C),0
+        ED52   SBC HL,DE                ED72   SBC HL,SP
+        ED53   LD (nn),DE               ED73   LD (nn),SP
+        ED54 * NEG                      ED74 * NEG
+        ED55 * RET                      ED75 * RET
+        ED56   IM 1                     ED76 * IM 1
+        ED57   LD A,I                   ED77 * NOP
+        ED58   IN E,(C)                 ED78   IN A,(C)
+        ED59   OUT (C),E                ED79   OUT (C),A
+        ED5A   ADC HL,DE                ED7A   ADC HL,SP
+        ED5B   LD DE,(nn)               ED7B   LD SP,(nn)
+        ED5C * NEG                      ED7C * NEG
+        ED5D * RET                      ED7D * RET
+        ED5E   IM 2                     ED7E * IM 2
+        ED5F   LD A,R                   ED7F * NOP
+
+    Guenter Woigk remarked that the three instructions marked # (which were
+    previously marked *) are documented by ZiLog, though not normally used.
+    The ED63 and ED6B instructions have shorter and faster equivalents.
+
+    The ED70 instruction reads from port (C), just like the other
+    instructions, but throws away the result.  It does change the flags in
+    the same way as the other IN instructions, however.  The ED71
+    instruction OUTs a byte zero to port (C), interestingly.  These
+    instructions 'should', by regularity of the instruction set, use (HL)
+    as operand, but since from the processor's point of view accessing
+    memory or accessing I/O devices is the same thing except for activation
+    of the /IORQ line instead of the /MREQ line, and since the Z80 does not
+    access memory twice in one instruction (disregarding instruction fetch
+    of course) it can't fetch or store the data byte.  (A hint in this
+    direction is that, even though the NOP-synonyms LD B,B, LD C,C etcetera
+    do exist, LD (HL),(HL) is absent and replaced by the HALT instruction.)
+
+    The instructions ED 4E and ED 6E are IM 0 equivalents: when FF was put
+    on the bus (physically) at interrupt time, the Spectrum continued to
+    execute normally, whereas when an EF (RST #28) was put on the bus it
+    crashed, just as it does in that case when the Z80 is in the official
+    interrupt mode 0.  In IM 1 the Z80 just executes a RST #38 (opcode FF)
+    no matter what is on the bus.
+
+    The RETI instruction is functionally exactly equivalent to the RET
+    instruction.  It is used only to signify the end of an interrupt
+    routine to an external hardware device (read: the Z80 PIO).  The RETN
+    however is different from RET in that it resets IFF1 to the current
+    value of IFF2.  Now IFF1 and IFF2 are usually equal (and become equal
+    after DI and EI and after a maskable interrupt has been accepted).
+    They're different only if an NMI occurs when interrupts are enabled;
+    then IFF1 is off, and IFF2, holding the previous state of the interrupt
+    flip flop, is on, signifying that interrupts were enabled before the
+    non-maskable interrupt.  Since the state of IFF2 can be read by using
+    LD A,R and LD A,I, the RETN instruction is not used much in Spectrum
+    ROM software, and it is utterly useless in normal software.  In other
+    words, I have not tried to figure out whether the unofficial RET's are
+    RETI's or RETN's.  One can make an educated guess though.
 
     About the R register.  This is not really an undocumented feature,
-    although I have never seen any thorough description of it anywhere.  The
-    R register is a counter that is updated every instruction, where DD, FD,
-    ED and CB are to be regarded as separate instructions.  So shifted
-    instruction will increase R by two.  There's an interesting exception:
-    doubly-shifted opcodes, the DDCB and FDCB ones, increase R by two too.
-    LDI increases R by two, LDIR increases it by 2 times BC, as does LDDR
-    etcetera.  The sequence LD R,A / LD A,R increases A by two, except for
-    the highest bit: this bit of the R register is never changed.  This is
+    although precise explanations were hard to find.  The R register is a
+    counter that is updated every instruction, where DD, FD, ED and CB are
+    to be regarded as separate instructions.  So shifted instructions will
+    increase R by two.  There's an exception: doubly-shifted opcodes, the
+    DDCB and FDCB ones, increase R by two too.  LDI increases R by two,
+    LDIR increases it by 2 times BC, as does LDDR etcetera.  The sequence
+    LD R,A / LD A,R increases A by two. The highest bit of the R register
+    is never changed (except possibly by LD R,A of course).  This is
     because in the old days everyone used 16 Kbit chips.  Inside the chip
-    the bits where grouped in a 128x128 matrix, needing a 7 bit refresh
-    cycle.  Therefore ZiLOG decided to count only the lowest 7 bits. Anyway,
-    if the R register emulation is switched on the R register will behave as
-    is does on a real Spectrum; if it is off it will (except for the upper
-    bit) act as a random generator.
+    the bits were arranged in a 128x128 matrix, and needed a 7 bit refresh
+    cycle.  Probably for this reason ZiLOG decided to count only the lowest
+    7 bits.  If the R register emulation is switched on the R register will
+    behave as is does on a real Spectrum; if it is off it will (except for
+    the upper bit) act as a random generator.
 
     You can easily check that the R register is really crucial to memory
     refresh.  Assemble this program:
@@ -446,10 +940,10 @@ Contents:
 
     It will take about three minutes to run.  Look at the upper 32K of
     memory, for instance the UDG graphics.  It will have faded.  Only the
-    first few bytes of each 256 byte block will still contain zeros, because
-    they were refreshed during the execution of the loop.  The ULA took care
-    of the refreshing of the lower 16K.  (This example won't work on the
-    emulator of course!)
+    first few bytes of each 256 byte block will still contain zeros,
+    because they were refreshed during the execution of the loop.  The ULA
+    took care of the refreshing of the lower 16K.  (This example won't work
+    on the emulator of course!)
 
     Then there's one other dark corner of the Z80 which has its effect on
     programs like Sabre Wulf, Ghosts'n Goblins and Speedlock.  The Mystery
@@ -475,42 +969,53 @@ Contents:
 
     Ghosts'n Goblins use the undocumented flag due to a programming error.
     The rhino in Sabre Wulf walks backward or keeps running in little
-    circles in a corner, if the (in this case undocumented) behaviour of the
-    sign flag in the BIT instruction isn't right.  I quote:
+    circles in a corner, if the (in this case undocumented) behaviour of
+    the sign flag in the BIT instruction isn't right.  I quote:
 
         AD86    DD CB 06 7E        BIT 7,(IX+6)
-        AD89    F2 8F AD           JP P,#AD8F
+        AD8A    F2 8F AD           JP P,#AD8F
 
-    An amazing piece of code! Speedlock does so many weird things that all
-    must be exactly right for it to run.  Finally, the '128 rom uses the AF
-    register to hold the return address of a subroutine for a while.  To
-    keep all programs happy, and still have a fast emulator, I had to make a
-    compromise.  The undocumented flags are not always emulated right, but
-    they are most of the time.
-
-    Finally, a remark about the interrupt flip flops IFF1 and IFF2.  There
-    seems to be a little confusion about these.  These flip flops are
-    simultaneously set or reset by the EI and DI instructions.  IFF1
-    determines whether interrupts are allowed, but its value cannot be read.
-    The value of IFF2 is copied to the P/V flag by LD A,I and LD A,R.  When
-    an NMI occurs, IFF1 is reset, thereby disallowing further (maskable)
-    interrupts, but IFF2 is left unchanged.  This enables the NMI service
-    routine to check whether the interrupted program had enabled or disabled
-    maskable interrupts.  So, Spectrum snapshot software can only read IFF2,
-    but most emulators will emulate both, and then the one that matters most
-    is IFF1.
+    An amazing piece of code!  Speedlock does so many weird things that
+    everything must be exactly right for it to run.  Finally, the '128 rom
+    uses the AF register to hold the return address of a subroutine for a
+    while.  To keep all programs happy, and still have a fast emulator, I
+    had to make a compromise.  The undocumented flags are not always
+    emulated right, but they are most of the time.  Not telling you when
+    not.
 
     Now for the emulated Z80.  I have added eight instructions, to speed up
     the RS232 input and output of the Interface I and several things of the
     SamRam.  These opcodes, ED F8 to ED FE are of little use to any other
     program.  ED FF is a nice one: it returns you to DOS immediately.  I
-    used it for debugging purposes.
+    used it for debugging purposes, and it is also used in TAP2TAPE and
+    SAMLIST.
+
+    The opcode ED FB, which is used by the SamRam, is now also used to use
+    multi-load games on the emulator.  If the emulator encounters the
+    opcode ED FB in RAM (above 16384), it loads a block of code into memory
+    at address HL.  The data is first looked for in the .Z80 or .SLT
+    snapshot file last loaded (see description of the .Z80 file format); if
+    it is not found there, the emulator looks for a .DAT file with the same
+    name as the snapshot last loaded, and the decimal value of the A
+    register appended to it (dropping letters from the snapshot name if
+    required to make it at most 8 characters long).  If this file is not
+    found either, a window is popped up to inform the user of the value of
+    the A register, and allow him to supply a .DAT file (or .Z80/.SLT file)
+    himself.
+
+    When the emulator fails to load a block, it complements the carry flag,
+    so that the running Spectrum program can decide what to do.  Note that
+    versions of Z80 prior to v3.04 did not change the flags, so that on old
+    versions (and on other emulators) loading will always seem to succeed.
 
 
 
-5.5  File formats
 
-    This sections describes the formats of the files used by the emulator.
+5.9  File formats
+
+
+    This section describes the format of the files used by the emulator.
+
 
 
     ROMS.BIN:
@@ -522,16 +1027,19 @@ Contents:
         0a000-0dfff     Second SamRam rom (contains monitor,...)
         0e000-11fff     First Spectrum 128K rom (active at RESET)
         12000-15fff     Second Spectrum 128K rom (contains BASIC)
+        16000-19fff     Disciple rom, system file 3b, Epson printer code
+        1a000-1dfff     Disciple rom, system file 3b, HP printer code
+        1e000-1ffff     Multiface rom (8K)
 
     The ordinary rom has not been modified.  The Interface I rom has
     undergone some modifications, to speed up the RS232 input/output
-    routines.  If you don't like this, or want to use another version of the
-    Interface I, you could put that code at the right place in the ROMS.BIN
-    file.  The interface I should work properly, although the RS232 will be
-    slower (always FORMAT the "b" or "t" channel at 19200 baud, by the way,
-    if you replace the rom code, there's no point in waiting for nothing!)
-    The microdrive routines have not been modified in any way.  Here are the
-    changes of the Interface I rom:
+    routines.  If you don't like this, or want to use another version of
+    the Interface I, you could put that code at the right place in the
+    ROMS.BIN file.  The interface I should work properly, although the
+    RS232 will be slower (always FORMAT the "b" or "t" channel at 19200
+    baud, by the way, if you replace the rom code, there's no point in
+    waiting for nothing.)  The microdrive routines have not been modified
+    in any way.  Here are the changes of the Interface I rom:
 
         Address: Old: New:           Address: Old: New:
 
@@ -548,54 +1056,59 @@ Contents:
     hasn't been modified; who would put his snapshot software in there
     anyway, and that's what those people are afraid of.
 
-    The first and second SamRam rom have been modified more extensively. The
-    biggest problem was that switching the upper 32K ram bank is very fast
-    in reality, but on the PC two blocks of 32K bytes had to be REP
-    MOVSWded.  But since no programs know of the SamRam code anyway, this
-    won't cause any more problems it wouldn't already cause either.
+    The first and second SamRam rom have been modified more extensively.
+    The biggest problem was that switching the upper 32K ram bank is very
+    fast in reality, but on the PC two blocks of 32K bytes had to be REP
+    MOVSWded (or the EMS emulator be called).  But since no programs know
+    of the SamRam code anyway, this won't cause any more problems it
+    wouldn't already cause either.
 
-    The two Spectrum 128 roms have not been modified.
+    The two Spectrum 128 roms have not been modified, and neither have the
+    Disciple roms or the Multiface rom.  The Disciple roms, as they appear
+    in the ROMS.BIN file, do have system files pre-loaded however.
+
 
 
     .TAP FILES:
     -----------
 
-    The .TAP files contain blocks of tape-saved data.  All blocks start with
-    two bytes specifying how many bytes will follow (not counting the two
-    length bytes).  Then raw tape data follows, including the flag and
+    The .TAP files contain blocks of tape-saved data.  All blocks start
+    with two bytes specifying how many bytes will follow (not counting the
+    two length bytes).  Then raw tape data follows, including the flag and
     checksum bytes.  The checksum is the bitwise XOR of all bytes including
     the flag byte.  For example, when you execute the line SAVE "ROM" CODE
     0,2 this will result:
 
 
              |------ Spectrum-generated data -------|       |---------|
+
        13 00 00 03 52 4f 4d 7x20 02 00 00 00 00 80 f1 04 00 ff f3 af a3
 
-       ^^^^^       first block is 19 bytes (17 bytes+flag+checksum)
-             ^^    flag byte (A reg, 00 for headers, ff for datablocks)
+       ^^^^^...... first block is 19 bytes (17 bytes+flag+checksum)
+             ^^... flag byte (A reg, 00 for headers, ff for data blocks)
                 ^^ first byte of header, indicating a code block
 
-       filename    ^^^^^^^^^^^^^
-       header info               ^^^^^^^^^^^^^^^^^
-       checksum of header                          ^^
-       length of second block                         ^^^^^
-       flag byte                                             ^^
-       first two bytes of rom                                  ^^^^^
-       checksum (checkbittoggle would be better)                     ^^
+       file name ..^^^^^^^^^^^^^
+       header info ..............^^^^^^^^^^^^^^^^^
+       checksum of header .........................^^
+       length of second block ........................^^^^^
+       flag byte ............................................^^
+       first two bytes of rom .................................^^^^^
+       checksum (checkbittoggle would be a better name!).............^^
 
 
     The emulator will always start reading bytes at the beginning of a
-    block.  If less bytes are loaded than are available, the other bytes are
-    skipped, and the last byte loaded is used as checksum.  If more bytes
-    are asked for than exist in the block, the loading routine will
-    terminate with the usual tape-loading-error flags set, leaving the error
-    handling to the calling Z80 program.
+    block.  If less bytes are loaded than are available, the other bytes
+    are skipped, and the last byte loaded is used as checksum.  If more
+    bytes are asked for than exist in the block, the loading routine will
+    terminate with the usual tape-loading-error flags set, leaving the
+    error handling to the calling Z80 program.
 
     Note that it is possible to join .TAP files by simply stringing them
     together, for example COPY /B FILE1.TAP + FILE2.TAP ALL.TAP
 
-    For completeness, I'll include the structure of a tape header.  A header
-    always consists of 17 bytes:
+    For completeness, I'll include the structure of a tape header.  A
+    header always consists of 17 bytes:
 
         Byte    Length  Description
         0       1       Type (0,1,2 or 3)
@@ -605,31 +1118,34 @@ Contents:
         15      2       Parameter 2
 
     The type is 0,1,2 or 3 for a Program, Number array, Character array or
-    Code file.  A screen$ file is regarded as a Code file with start address
-    16384 and length 6912 decimal.  If the file is a Program file, parameter
-    1 holds the autostart line number (or a number >=32768 if no LINE
-    parameter was given) and parameter 2 holds the start of the variable
-    area relative to the start of the program.  If it's a Code file,
-    parameter 1 holds the start of the code block when saved, and parameter
-    2 holds 32768.  For data files finally, the byte at position 14 decimal
-    holds the variable name.
+    Code file.  A screen$ file is regarded as a Code file with start
+    address 16384 and length 6912 decimal.  If the file is a Program file,
+    parameter 1 holds the autostart line number (or a number >=32768 if no
+    LINE parameter was given) and parameter 2 holds the start of the
+    variable area relative to the start of the program.  If it's a Code
+    file, parameter 1 holds the start of the code block when saved, and
+    parameter 2 holds 32768.  For data files finally, the byte at position
+    14 decimal holds the variable name.
+
 
 
     .MDR FILES:
     -----------
 
     The emulator uses a cartridge file format identical to the 'Microdrive
-    File' format of Carlo Delhez' Spectrum emulator Spectator for the QL.
-    The following information is adapted from Carlo's documentation.  It can
-    also be found in the 'Spectrum Microdrive Book', by Ian Logan (co-writer
-    of the excellent 'Complete Spectrum ROM Disassembly').
+    File' format of Carlo Delhez' Spectrum emulator Spectator for the QL,
+    who devised the format.  This format is now also supported by XZX of
+    Des Harriot.  The following information is adapted from Carlo's
+    documentation.  It can also be found in the 'Spectrum Microdrive Book',
+    by Ian Logan (co-writer of the excellent 'Complete Spectrum ROM
+    Disassembly').
 
     A cartridge file contains 254 'sectors' of 543 bytes each, and a final
     byte flag which is non-zero is the cartridge is write protected, so the
     total length is 137923 bytes.  On the cartridge tape, after a GAP of
-    some time the Interface I writes 10 zeros and 2 FF bytes (the preamble),
-    and then a fifteen byte header-block-with-checksum.  After another GAP,
-    it writes a preamble again, with a 15-byte record-
+    some time the Interface I writes 10 zeros and 2 FF bytes (the
+    preamble), and then a fifteen byte header-block-with-checksum.  After
+    another GAP, it writes a preamble again, with a 15-byte record-
     descriptor-with-checksum (which has a structure very much like the
     header block), immediately followed by the data block of 512 bytes, and
     a final checksum of those 512 bytes.  The preamble is used by the
@@ -680,9 +1196,129 @@ Contents:
     record block will have the right checksum.  If the checksum is not
     right, the block will be treated as a GAP.  For instance, if you type
     OUT 239,0 on a normal Spectrum with interface I, the microdrive motor
-    starts running and the cartridge will be erased completely in 7 seconds.
-    CAT 1 will respond with 'microdrive not ready'.  Try it on the
+    starts running and the cartridge will be erased completely in 7
+    seconds. CAT 1 will respond with 'microdrive not ready'.  Try it on the
     emulator...
+
+
+
+
+    .OUT FILES:
+    -----------
+
+    These files are produced when logging OUTs; see menu option O in the
+    Extra Functions menu.  For the specified I/O ports, all OUTs to these
+    ports are recorded in the .OUT file, together with the exact time at
+    which the OUTs were executed.
+
+    An .OUT file consists of a string of 5-byte blocks.  The first word is
+    the timing word; it has a value between 0 and 17471 inclusive (or
+    between 0 and 17726 inclusive when a 128K Spectrum is emulated), and a
+    unit value corresponds to 1 T state (=1/3494400 s).  After this, the
+    OUT port that was written to follows, then the value OUTed itself:
+
+        Offset  Length  Description
+
+        0       2       Time (0-17471 or 0-17726)
+        2       2       Port address
+        4       1       Value
+
+    Every 1/200th of an emulated second, that is, every 69888/4=17472 T
+    states (or 70908/4=17727 T states on 128K Spectrums), a time-wraparound
+    block is written to the .OUT file:
+
+        Offset  Length  Description
+
+        0       2       Flag word #FFFF indicating wraparound-block
+        2       2       Length of preceding block (17472 or 17727 T)
+        4       1       Not used
+
+    So even when the Spectrum does not OUT to the logged ports at all, 1000
+    bytes get written to the log file every second.
+
+    By default, an OUT to an even I/O address which does not change the
+    state of the MIC and EAR outputs is not written to the .OUT file, to
+    save disk space when recording music.  If you want all OUTs, specify
+    -xg on the command line.
+
+    The .OUT files are also used to make a simple trace of a running
+    Spectrum program.  Specify -xy on the command line; as soon as you
+    activate OUT logging, a trace is dumped also.  For each instruction
+    encountered during emulation, the following block is written to the
+    .OUT file:
+
+        Offset  Length  Description
+
+        0       2       Flag word (#FFFE)
+        2       2       Program counter
+        5       1       A register
+
+    Furthermore, no time-wraparound blocks are written to the .OUT file
+    when tracing.  HALT instructions (118 decimal) are special in that they
+    do not generate a block in the log file; this is to make comparisons
+    between different logs of the same program easier.  Admittedly, this is
+    a very crude way of tracing a program, but it's better than nothing,
+    and very useful very occasionally.
+
+
+
+
+    Map files
+    ---------
+
+    Map files are those that are produced via option -0m; see section 2.19
+    in Z80.DOC.  These files have no default extension; .MAP seems a natural
+    suggestion.  These files are meant to be used with a future version of
+    Leslie Styles' DSNA (a snapshot disassembler; you can find it on
+    ftp.nvg.unit.no).
+
+    Map files are 8192 bytes long.  Each byte represents 8 addresses in
+    Spectrum memory, from #0000 to #FFFF.  Note that the rom is also
+    mapped.  A one at bit-position k in byte n means that at least once
+    during the time the emulator emulated, it emulated the opcode it found
+    at address 8n+k.  The shifted opcodes will only have the shift code
+    marked (though the Z80 chip is, I think, in machine cycle 1, M1, during
+    both the shift fetch and the secondary opcode fetch).  Due to the way
+    inofficial DD and FD instructions are implemented, a sequence of DD's
+    is considered as one very long instruction, and will result in only the
+    address of the first DD that was executed being tagged.
+
+    You should not use Hi-res color emulation during opcode mapping; they
+    use the same buffer area.  HRC emulation still works, but destroys the
+    mapping buffer.  Also, option -xu (disable HCR emulation to use less
+    memory) will disable opcode mapping.  Finally, the mapping procedure
+    does not take memory paging into account, and it is therefore not very
+    practical in 128K modes, in SamRam mode, and for mapping the execution
+    of the shadow roms (128K, SamRam, Interface I, Multiface).  It works
+    best for mapping the ordinary rom and ordinary 48K Spectrum programs.
+    Also note that the map is never cleared, not even when another snapshot
+    is loaded.
+
+    The best way to use this feature is the following.  Load the program
+    you want to disassemble, and let it run to the main starting point, so
+    that all decoding, decompressing, and moving around has probably been
+    done.  Then save the snapshot ('program.z80'), and start the emulator
+    with 'z80 -0m program.map program.z80'.  Run it for a while, but be
+    sure never to reset the Spectrum, or to enter the SamRam or Multiface,
+    or load another snapshot.  After a while, quit the emulator
+    (Ctrl-Break), and you'll find the file 'program.map' contain the
+    locations of the opcodes executed.  By tracing the code blocks found,
+    and also taking the conditional branches that were left alone during
+    execution, most of the code can probably be found.
+
+    This option has been added after reading a remark of Leslie Styles
+    (lsm@soton.ac.uk), who had been trying to make his disassembler figure
+    out which parts of memory were actual code, and which were data.  It
+    seemed to me that the only reliable way was to actually emulate the
+    code.  For almost all programs this will be sufficient.  It however
+    still does not take into account the possibility of self-modifying
+    code.  For completely general programs, the approach that Arnt
+    Gulbrandsen followed in his JPP (also keeping a map of executed opcode
+    locations, but invalidating these if necessary when data is written to
+    memory)  is the only right solution.  The current approach however was
+    so simple to implement that I thought it to be worthwhile.
+
+
 
 
     .SCR FILES:
@@ -690,39 +1326,63 @@ Contents:
 
     .SCR files are memory dumps of the first 6912 bytes of the Spectrum
     memory.  A coordinate (x,y), x between 0 and 255 and y between 0 and
-    192, (0,0) being the upper left corner of the screen, corresponds to the
-    pixel address
+    192, (0,0) being the upper left corner of the screen, corresponds to
+    the pixel address
 
         16384+INT (x/8)+1792*INT (y/64)-2016*INT (y/8)+256*y
 
     I admit this is not quite the clearest way to explain the organization
     of Spectrum's video memory, but with a bit or (hard) thinking you can
-    extract from above formula all information you need...  The lowest three
-    bits of x determine which bit of this address corresponds to the pixel
-    (x,y).  This bit-map constitutes the larger part of the screen memory,
-    256*192/8=6144 bytes.  The final 768 bytes are attribute bytes.  The
-    address of the attribute byte corresponding to pixel (x,y) is
+    extract from above formula all information you need...  The lowest
+    three bits of x determine which bit of this address corresponds to the
+    pixel (x,y).  This bit-map constitutes the larger part of the screen
+    memory, 256*192/8=6144 bytes.  The final 768 bytes are attribute bytes.
+    The address of the attribute byte corresponding to pixel (x,y) is
 
         22528+INT (x/8)+32*INT (y/8)
 
-    The lowest three bits of the attribute byte control the foreground color
-    (the color of the pixel if the corresponding bit in the bitmap is set),
-    bits 3-5 control the background color, bit 6 is the bright bit and bit 7
-    is the flash bit - if it is set, every 16/50th of a second the ULA
-    effectively flips the foreground and background colours.
+    The lowest three bits of the attribute byte control the foreground
+    colour (the colour of the pixel if the corresponding bit in the bitmap is
+    set), bits 3-5 control the background colour, bit 6 is the bright bit
+    and bit 7 is the flash bit - if it is set, every 16/50th of a second
+    the ULA effectively flips the foreground and background colours.
 
 
 
-    .Z80 FILES:
+    .DAT files:
     -----------
+
+    These files are used to store level data; blocks of memory that are
+    loaded when the opcode ED FB is executed.  The block is loaded at the
+    address pointed to by the HL register.  The level number is in the A
+    register.  If the emulator fails to load a level data block, it
+    complements the carry flag.  Versions of the emulator prior to v3.04
+    did not do this.
+
+    When an ED FB opcode is encountered, the emulator first looks for the
+    snapshot file last loaded, and checks whether it contains the level
+    requested (see the description of the .Z80 format below).  If this
+    fails, it looks for a .DAT file of the level; the name of this file is
+    derived from the name of the last snapshot loaded by appending the
+    (decimal) value of the A register to the name of the snapshot file,
+    dropping characters from the original snapshot name to make the total
+    length 8 characters if necessary.  .DAT files simply contain the plain
+    level data (in contrast to the level data in .Z80 files, which are
+    compressed).
+
+
+
+    .Z80 and .SLT files:
+    --------------------
 
     The old .Z80 snapshot format (for version 1.45 and below) looks like
     this:
 
-        Byte    Length  Description
+        Offset  Length  Description
+
         0       1       A register
         1       1       F register
-        2       2       BC register pair (LSB, i.e.  C, first)
+        2       2       BC register pair (LSB, i.e. C, first)
         4       2       HL register pair
         6       2       Program counter
         8       2       Stack pointer
@@ -751,64 +1411,130 @@ Contents:
                                  0,2=Normal
                         Bit 6-7: 0=Cursor/Protek/AGF joystick
                                  1=Kempston joystick
-                                 2=Sinclair 1 joystick
-                                 3=Sinclair 2 joystick
+                                 2=Sinclair 2 Left joystick (or user
+                                   defined, for version 3 .Z80 files)
+                                 3=Sinclair 2 Right joystick
 
     Because of compatibility, if byte 12 is 255, it has to be regarded as
-    being 1.  After this header block of 30 bytes the 48K bytes of Spectrum
-    memory follows in a compressed format (if bit 5 of byte 12 is one). The
-    compression method is very simple: it replaces repetitions of at least
-    five equal bytes by a four-byte code ED ED xx yy, which stands for "byte
-    yy repeated xx times".  Only sequences of length at least 5 are coded.
-    The exception is sequences consisting of ED's; if they are encountered,
-    even two ED's are encoded into ED ED 02 ED.  Finally, every byte
-    directly following a single ED is not taken into a block, for example
-    ED 6*00 is not encoded into ED ED ED 06 00 but into ED 00 ED ED 05 00.
-    The block is terminated by an end marker, 00 ED ED 00.
+    being 1.  Following this header block of 30 bytes the 48K bytes of
+    Spectrum memory are stored, in a compressed format (if bit 5 of byte 12
+    is set).
 
-    That's the format of .Z80 files as used by versions up to 1.45.  Since
-    starting from version 2.0 the program emulates the Spectrum 128 too,
-    there was a need for a new format.
+    The compression method is this.  Repetitions of at least five equal
+    bytes are replaced by the four-byte code ED ED xx yy, which stands for
+    "byte yy repeated xx times".  Only sequences of length at least 5 are
+    coded. The exception is sequences consisting of ED's; if they are
+    encountered, even two ED's are encoded into ED ED 02 ED.  Finally,
+    every byte directly following a single ED is not taken into a block,
+    for example ED 6*00 is not encoded into ED ED ED 06 00 but into ED 00
+    ED ED 05 00.  The block is terminated by an end marker, 00 ED ED 00.
 
-    The first 30 bytes are almost the same as the old versions' header.  Of
-    the flag byte, bit 4 and 5 have got no meaning anymore, and the program
-    counter (bytes 6 and 7) are zero to signal a version 2.0 .Z80 file.  So
-    loading a new style .Z80 file into an old emulator will cause an error
-    or a reset at the most.
+    That's the format of .Z80 files as used by versions up to 1.45.
+    Starting from version 2.0, a different format is used, since from then
+    on also 128K snapshots had to be supported.  This new format is used
+    for all snapshots (48K or 128K).
 
-    After the first 30 bytes, an additional header follows:
+    Version 2.01 and 3.0x .Z80 files start with the same 30 byte header
+    that old .Z80 files used.  Bit 4 and 5 of the flag byte (offset 12)
+    have no meaning anymore, and the program counter (offset 6 and 7) are
+    zero to signal a version 2.01 (or later) snapshot file.
 
-        Byte    Length  Description
-        30      2       Length of additional header block (contains 23)
-        32      2       Program counter
-        34      1       Hardware mode: 0=Spectrum 48K, 1=0+interface I,
-                        2=SamRam, 3=Spectrum 128K, 4=3+interface I.
-        35      1       If in SamRam mode, bitwise state of 74ls259.
+    After the first 30 bytes, the additional header follows:
+
+
+        Offset  Length  Description
+
+      * 30      2       Length of additional header block (see below)
+      * 32      2       Program counter
+      * 34      1       Hardware mode (see below)
+      * 35      1       If in SamRam mode, bitwise state of 74ls259.
                         For example, bit 6=1 after an OUT 31,13 (=2*6+1)
                         If in 128 mode, contains last OUT to 7ffd
-        36      1       Contains 0FF if Interface I rom paged
-        37      1       Bit 0: 1 if R register emulation on
+      * 36      1       Contains 0FF if Interface I rom paged
+      * 37      1       Bit 0: 1 if R register emulation on
                         Bit 1: 1 if LDIR emulation on
-        38      1       Last OUT to fffd (soundchip register number)
-        39      16      Contents of the sound chip registers
+      * 38      1       Last OUT to fffd (soundchip register number)
+      * 39      16      Contents of the sound chip registers
+        55      2       Low T state counter
+        57      1       Hi T state counter
+        58      1       Flag byte used by Spectator (QL spec. emulator)
+                        Ignored by Z80 when loading, zero when saving
+        59      1       0FF if MGT Rom paged
+        60      1       0FF if Multiface Rom paged. Should always be 0.
+        61      1       0FF if 0-8191 is RAM
+        62      1       0FF if 8192-16383 is RAM
+        63      10      5x keyboard mappings for user defined joystick
+                        (Default values: 0x0103,0x0203,0x0403,0x0803,0x1003)
+        73      10      5x ascii word: keys corresponding to mappings above
+                        (Default values: 0x0031,0x0032,0x0033,0x0034,0x0035)
+        83      1       MGT type: 0=Disciple+Epson,1=Discipls+HP,16=Plus D
+        84      1       Disciple inhibit button status: 0=out, 0ff=in
+        85      1       Disciple inhibit flag: 0=rom pageable, 0ff=not
+
+
+    The value of the word at position 30 is 23 for version 2.01 files, and
+    54 for version 3.0x files.  The starred fields are the ones that
+    constitute the version 2.01 header, and their interpretation has
+    remained unchanged except for offset 34 (Hardware mode):
+
+        Value:          Meaning in v2.01        Meaning in v3.0x
+
+        0               48k                     48k
+        1               48k + If.1              48k + If.1
+        2               SamRam                  SamRam
+        3               128k                    48k + M.G.T.
+        4               128k + If.1             128k
+        5               -                       128k + If.1
+        6               -                       128k + M.G.T.
+
+    The hi T state counter counts up modulo 4.  Just after the ULA
+    generates its once-in-every-20-ms interrupt, it is 3, and is increased
+    by one every 5 emulated milliseconds to take the values 0,1,2 and 3
+    again respectively.  In these 1/200s intervals, the low T state counter
+    counts down from 17471 to 0 inclusive (or 17726 to 0 in 128K modes),
+    which make a total of 69888 T states (70908 T states) per frame.
+
+    The 5 ascii words (high byte always 0) at 73-82 are the keys
+    corresponding to the joystick directions left, right, down, up, fire
+    respectively.  Shift, Symbol Shift, Enter and Space are denoted by
+    [,],/,\ respectively.  The ascii values are used only to display the
+    joystick keys; the information in the 5 keyboard mapping words
+    determine which key is actually pressed (and should correspond to the
+    ascii values).  The low byte is in the range 0-7 and determines the
+    keyboard row.  The high byte is a mask byte and determines the column.
+    Enter for example is stored as 0x0106 (row 6 and column 1) and 'g' as
+    0x1001 (row 1 and column 4).  The default values correspond to the Left
+    Sinclair Interface 2 joystick.
+
+    Byte 60 must be zero, because the contents of the Multiface RAM is not
+    saved in the snapshot file.  If the Multiface was paged when the
+    snapshot was saved, the emulated program will most probably crash when
+    loaded back.
+
+    Bytes 61 and 62 are a function of the other flags, such as byte 34, 59,
+    60 and 83.
 
     Hereafter a number of memory blocks follow, each containing the
-    compressed data of a 16K block.  The compression is according to the old
-    scheme, except for the end-marker, which is now absent.  The structure
-    of a memory block is:
+    compressed data of a 16K block.  The compression is according to the
+    old scheme, except for the end-marker, which is now absent.  The
+    structure of a memory block is:
 
-        Byte    Length  Description
+
+        Offset  Length  Description
+
         0       2       Length of data (without this 3-byte header)
         2       1       Page number of block
         3       [0]     Compressed data
 
-    The pages are numbered, depending on the hardware mode, in the following
-    way:
+
+    The pages are numbered, depending on the hardware mode, in the
+    following way:
+
 
         Page    In '48 mode     In '128 mode    In SamRam mode
 
          0      48K rom         rom (basic)     48K rom
-         1      Interf. I rom   Interf. I rom   Interf. I rom
+         1      Interface I, Disciple or Plus D rom, according to setting
          2      -               rom (reset)     samram rom (basic)
          3      -               page 0          samram rom (monitor,..)
          4      8000-bfff       page 1          Normal 8000-bfff
@@ -818,11 +1544,74 @@ Contents:
          8      4000-7fff       page 5          4000-7fff
          9      -               page 6          -
         10      -               page 7          -
+        11      Multiface rom   Multiface rom   -
+
 
     In 48K mode, pages 4,5 and 8 are saved.  In SamRam mode, pages 4 to 8
-    are saved.  In 128 mode, all pages from 3 to 10 are saved.  This
+    are saved.  In '128 mode, all pages from 3 to 10 are saved.  This
     version saves the pages in numerical order.  There is no end marker.
-    end marker.
+
+    This concludes the specification of .Z80 files.  .SLT files (which
+    stands for 'super level loader trap files') are like .Z80 files except
+    that after the ordinary data another section follows, containing things
+    like level data (previously stored in .DAT files, and giving .SLT files
+    their name) or loading screens.  The ".Z80"-file preceding the SLT must
+    conform the format of v2.01 or v3.0x files (long header).
+
+    Though it is agreed that .Z80 files will not contain SLT data, and
+    files with SLT data will always have extension .SLT, Z80 does in fact
+    not distinguish between the extensions.
+
+    The SLT format was cooked up by Damien Burke, James McKay and yours
+    truly.  It starts as an ordinary >= v2.01 .Z80 file.  Directly
+    following this comes a
+
+
+        Offset  Length  Description
+
+        0       6       Separator (0,0,0,'S','L','T')
+
+
+    Then a table follows, each entry describing a piece of data.  The
+    format of a single table entry is:
+
+
+        Offset  Length  Description
+
+        0       2       Data type: 1=level data, 3=loading screen
+        2       2       Id word: Level number (between 0 and 255 inclusive)
+                         for type 1, border colour (between 0 and 7) for
+                         type 3.
+        4       4       Length of data block in bytes (Note: long word)
+
+
+    Data types other than type 1 and 3 are not supported by Z80 v3.04, and
+    are ignored.  The table ends with an all-zero end marker:
+
+
+        Offset  Length  Description
+
+        0       8       End marker (all zeroes)
+
+
+    Finally, the data blocks follow.  The blocks are stored in the order in
+    which they appear in the table,  i.e. the offset of a particular data
+    block is the sum of the lengths of the blocks that precede it.  The
+    internal format of these blocks depend on the data type:
+
+
+        Type:   Format:
+
+        0       (no data)
+        1       Compressed data (ED ED xx yy scheme, see above) expanding
+                 to anything up to 48K
+        3       Compressed data expanding to exactly 6912 bytes of data
+
+
+    See the end of section 5.8 for an explanation how to load these blocks
+    using the ED FB opcode, and error handling.
+
+    All words in the format have the least significant byte first.
 
 
 
