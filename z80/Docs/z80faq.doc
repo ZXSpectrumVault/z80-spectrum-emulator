@@ -1,4 +1,4 @@
-Sinclair ZX Spectrum Emulator 'Z80' v3.04  -  10/8/96  -  by G.A. Lunter
+﻿Sinclair ZX Spectrum Emulator 'Z80' v4.00  -  6/3/99  -  by G.A. Lunter
 
 
 
@@ -18,12 +18,14 @@ Z80 - Frequently Asked Questions
 8  - Printing problems with Tasword 128
 9  - What to do about an IN 0 crash?
 10 - I have a .TAP file, but it doesn't work
+11 - Z80 complains about lack of memory
+12 - 'OPENTYPE' bug of DISCiPLE/+D
                             
 ────────────────────────────────────────────────────────────────────
 
 
 
-ad 1. How to make a screen-dump on a printer
+ad 1. How to make a screen dump on a printer
 
 
 When the Interface 1 appeared, it was possible to attach a serial printer
@@ -38,16 +40,16 @@ into graphics data understandable for Epson and HP-PCL compatible printers,
 and finally, the DISCiPLE has also on-board screen dump routines.
 
 
-Example 1: Screen-dump for Epson or HP-PCL compatible printers, via
+Example 1: Screen dump for Epson or HP-PCL compatible printers, via
    the standard COPY command.
 
    Select the printer port to use for output with -XL 2 for example, to
    select LPT2 for output.  Select Epson or HP-PCL output format with -0e
    or -0h.  Then simply type COPY (in 48K or SamRam mode, not in 128K
-   mode).
+   mode, and neither in DISCiPLE mode; it works in +D mode though).
 
 
-Example 1: Screen-dump for Star SG-10 compatible matrix printer using
+Example 1: Screen dump for Star SG-10 compatible matrix printer using
    the SamRam.
 
    Redirect the Spectrum Interface 1 RS232 output to LPT1 by pressing F4,
@@ -59,7 +61,7 @@ Example 1: Screen-dump for Star SG-10 compatible matrix printer using
    Press P, then 1 to print the screen.
 
 
-Example 2: Screendump for EPSON compatible matrix printer using the
+Example 2: Screen dump for EPSON compatible matrix printer using the
    COPY command of the Spectrum 128
 
    Redirect the RS232 output to LPT1 by pressing F4, O, L, 1.
@@ -72,7 +74,7 @@ Example 2: Screendump for EPSON compatible matrix printer using the
    Go back to the emulator (ESC, ESC) and press any key to start printing.
 
 
-Example 3: Screendump for all other printers, using DOS utilities
+Example 3: Screen dump for all other printers, using DOS utilities
 
    Follow the steps from example 2 up to the saving of the .SCR
         screen snapshot.
@@ -84,8 +86,8 @@ Example 3: Screendump for all other printers, using DOS utilities
    Find another program that can print the .GIF or .PCX file
 
 
-Example 4: Screendump for Epson or HP PCL compatible printers using
-   the screendump routines of the DISCiPLE
+Example 4: Screen dump for Epson or HP PCL compatible printers using
+   the routines of the DISCiPLE
 
    Redirect RS232 output to LPT1.
 
@@ -94,6 +96,19 @@ Example 4: Screendump for Epson or HP PCL compatible printers using
    Type COPY SCREEN$ 1 for a small screen-dump (black/white but with regard
         to colors)
    Type COPY SCREEN$ 2 for an A4 dump with dithered grey-tones.
+
+
+Example 5: Screen dump for Epson or HP PCL compatible printers using
+   the ZX Printer emulation and the ordinary COPY command
+
+   At startup, use a combination of the switches -xl, -xj, -0e, -0h and
+   -0f to select the proper set-up for your printer configuration.  These
+   switches are best defaulted in Z80.INI.
+
+   Make sure the emulator is in a 48K mode, SamRam is OK, or in a 128K mode
+   but 48K BASIC, and make sure the Disciple is not turned on (+D is fine
+   though).  Then, the ordinary COPY command works.
+
 
 
 ────────────────────────────────────────────────────────────────────
@@ -107,24 +122,41 @@ output port with -xl and output mode with -0e or -0h, then simply use
 LPRINT, LLIST and COPY to output to the "p" stream (on 48K Spectrum or
 SamRam; not on the Spectrum 128K).
 
+Note that (without the -xj switch) when the actual printer goes off-line or
+out-of-paper or whatever, Z80 will report to the Spectrum program that the
+ZX Printer is non-existent.  This will prevent programs from trying to
+print things - some print without being asked to.  However, when this
+happens during printing, Z80 will try to finish its job.  The program
+appears to hang, but pressing the space bar once causes Z80 to stop waiting
+and report the ZX Printer as non-existent.  When the printer goes on-line,
+the ZX Printer will appear again.
+
 All output to the Interface I's RS232 channel "b" and "t" (for raw and text
 output respectively; use "t" for listings) and the Spectrum 128's RS232
-channel "p" and the parallel printer interface of the DISCiPLE/+D can be
-routed to the printer port, a serial port or a disk file.  Thus, by OPEN
-#3,"b", "t" on the 48K Spectrum with Interface 1, or OPEN #3,"p" on the
-Spectrum 128, all data sent to channel 3 (i.e. printed by LPRINT or LLIST)
-can be routed directly to a printer.
+channel "p", and the DISCiPLE/+D's centronics "p" channel can be routed to
+the printer port, a serial port or a disk file.  Thus, by OPEN #3,"b", "t"
+on the 48K Spectrum with Interface 1, or OPEN #3,"p" on the Spectrum 128,
+all data sent to channel 3 (i.e. printed by LPRINT or LLIST) can be routed
+directly to a printer.  The menu that controls this is accessed by F4, O.
 
 The normal ZX Printer "p" channel is automatically (by an interrupt
-routine...) converted into the DISCiPLE/+D parallel printer output channel
-by typing POKE @11,0.  POKE @11,1 resets the "p" channel to the default
-again.
+routine) converted into the DISCiPLE/+D parallel printer output channel.
+The DISCiPLE rom's in ROMS.BIN are set to Centronics interface by default,
+so LPRINT works straight away.  When a +D ROM is used, POKE @11,0 may be
+necessary.  The +D's "p" channel can be reset to ZX Printer output by
+typing POKE @11,1.  In principle, this is also possible with the DISCiPLE,
+but the ZX Printer port #FB is used by the DISCiPLE already, and the
+emulated ZX Printer will not respond to it in DISCiPLE mode.
+
+The following POKE @'s are useful: POKE @6,0 to switch on control code
+conversion, POKE @8,1 to have CR's converted to CR/LF's, POKE @10,0 to
+switch off automatic conversion into graphics of some ascii characters.
 
 As said above, you have to redirect the output of the Interface 1 RS232.
-In the emulator, press F4, O, L, 1.  Like on the real spectrum with
-Interface 1, if you want to print to the Interface 1 RS232, you have to
-open the #3 channel.  In Spectrum Basic, type: OPEN #3,"b"  (or OPEN #3,"t"
-for basic listings).  Press SHIFT-ALT 4 for OPEN #.
+As on a real spectrum with Interface 1, if you want to print to the
+Interface 1 RS232, you have to open the #3 channel.  In Spectrum Basic,
+type: OPEN #3,"b"  (or OPEN #3,"t" for basic listings).  Press SHIFT-ALT 4
+for OPEN #.
 
 In this way you can print anything as long as your spectrum program
 supports printing to the Interface 1 RS232 and your printer type, or to the
@@ -170,21 +202,18 @@ one.
 ad 5. How to contact the author.
 
 
-You can contact me by normal post:
+Send E-mail to outletmag@yahoo.com or write a letter to
+
+        Chezron Software
+        34 Saltersgate Drive
+        Birstall
+        LEICESTER
+        LE4 3FF
+        England
+
+and they will forward the mail to me.
 
 
-Postal address:
-
-        Gerton Lunter
-        P.O. Box 2535
-        9704 CM  Groningen
-        The Netherlands.
-
-If it is REALLY urgent you can Email:
-
-z80help@bgserv.demon.co.uk
-
-Any queries which require my help will be forwarded to me.
 
 ───────────────────────────────────────────────────────────────────
 
@@ -272,5 +301,60 @@ clicks of the data, this will not work.  Convert the .TAP file to a .VOC
 file using TAP2VOC, and play this file back to the emulator.
 
 
+───────────────────────────────────────────────────────────────────
 
-
+ad 11.  Z80 complains about lack of memory
+
+
+Z80 itself suggests using -xt or -xu to reduce the amount of memory.  Using
+-xt reduces execution speed only slightly in some situations, so if this
+works, you might as well put -xt in the Z80.INI file as a permanent
+solution.  Most probably shelling to DOS will not work in this case, as DOS
+needs quite a bit of free memory.
+
+The switch -xu disables Hi-res color emulation, which can be undesirable.
+
+Z80 needs far less conventional memory if EMS memory is present.  In a
+Windows (95) DOS box the amount of EMS memory available can be pre-set.
+Use the PIF editor (Windows 3.1) or go to Properties, Memory, to set the
+amount of available EMS memory to about any non-zero value (Z80 needs less
+than 256 Kb).  This will most probably solve your memory problem in DOS
+boxes.
+
+If this still doesn't work, then most probably resident programs take up
+much space and leave very little conventional memory to ordinary programs.
+See your autoexec.bat file and remove unneccessary programs.  If you do
+need them, try using e.g. Quarterdeck's QEMM to load as much as possible
+resident programs into high memory.
+
+
+───────────────────────────────────────────────────────────────────
+
+ad 12.  The 'OPENTYPE' bug of the DISCiPLE/+D
+
+
+The following two small programs explain, by example, how to OPEN files
+directly on the DISCiPLE/+D system, and how to read from and write to them:
+
+10 OPEN #5"m";1;"Filename": REM it is assumed such a file exists
+20 FOR a=1 TO 10: LET b=CODE INKEY$#5: PRINT b: NEXT a
+30 MOVE #5 TO #2
+40 CLOSE #*5
+
+10 OPEN #5"m";1;"NewFile"
+20 FOR a=32 TO 255: PRINT #5;CHR$ a;: NEXT a
+30 CLOSE #*5
+
+The important thing to note here is that one should NOT write "CLOSE #5",
+but include an asterix (*) between the keyword CLOSE # and the stream
+number, 5 in this example.  The technical reason for this is that CLOSE #5
+is syntactically correct for the standard ROM, so that no syntax error is
+generated.  The DISCiPLE ROM is not paged, and the closing of the stream is
+left to the standard ROM.  The standard Spectrum ROM routine cannot handle
+any other stream than "K", "S" or "P" streams, partly because the ROM
+programmers forgot to include an end marker to the table at address #1716
+(See Ian Logan, Frank O'Hara, The Complete Spectrum ROM Disassembly, page
+71).
+
+If the asterix is left out, the (emulated) Spectrum crashes horribly.
+

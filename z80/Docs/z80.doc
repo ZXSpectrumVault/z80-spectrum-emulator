@@ -1,4 +1,4 @@
-Sinclair ZX Spectrum Emulator 'Z80' v3.04  -  10/8/96  -  by G.A. Lunter
+﻿Sinclair ZX Spectrum Emulator 'Z80' v4.00  -  6/3/99  -  by G.A. Lunter
 
 
 
@@ -6,7 +6,7 @@ Contents:
 
     1.    INTRODUCTION, REGISTRATION, GENERAL INFORMATION
     1.1   Some general remarks
-    1.2   Registering - sounds interesting!
+    1.2   Registration
     1.3   Other emulators
     1.4   Acknowledgements
     1.5   Disclaimers
@@ -47,7 +47,8 @@ Contents:
     4.4   The DISCiPLE and Plus D Interfaces - Basic commands
     4.5   The DISCiPLE and Plus D Interfaces - More advanced commands
     4.6   The DISCiPLE and Plus D Interfaces - The snapshot button
-    4.7   The Spectrum 128
+    4.7   The DISCiPLE and Plus D Interfaces - The system variables
+    4.8   The Spectrum 128
 
     5.    TECHNICAL INFORMATION  (in file TECHINFO.DOC)
     5.1   The Spectrum 48K
@@ -57,8 +58,9 @@ Contents:
     5.5   The Interface I
     5.6   The SamRam
     5.7   The Multiface 128
-    5.8   The Z80 microprocessor
-    5.9   File formats
+    5.8   The AMX mouse interface
+    5.9   The Z80 microprocessor
+    5.10  File formats
 
 
 
@@ -73,36 +75,41 @@ Contents:
 
 
     This is the documentation for 'Z80', a Sinclair ZX Spectrum 48/128
-    emulator.  The program turns your PC into a Spectrum.  Its features in
-    a (largish) nut-shell:
+    emulator.  The program turns your PC into a Spectrum.  This is what it
+    can do:
 
       - Emulates ZX Spectrum 48K model 2 or 3, and Spectrum 128K.
-      - Best compatibility of current Spectrum emulators.
+      - Excellent compatibility with real Spectrum, probably best of
+        current existing emulators.
       - Emulates Interface I and Microdrive (cartridge in cartridge file),
         Disciple and Plus D disk interfaces, Multiface 128.
       - Full tape support: loads both normal and turbo-saved programs using
         either tape interface on LPT port, SoundBlaster AD converter or
         .VOC sound sample files; can also use .TAP binary tape image files
-        by trapping ROM save/load routines.  Saving back to tape is also
-        possible, either directly to tape or to a .VOC sound sample file.
+        by trapping ROM save/load routines.  Starting from version 4, Z80
+        supports .TZX compressed tape image files.  Saving back to tape is
+        also possible, either directly to tape or to a .VOC sound sample
+        file.
       - Full emulation of Spectrum screen, including all colour effects.
         Border, and timing-sensitive border and attribute effects are also
         emulated.
       - Emulation of ZX Printer, for Epson and HP Laserjet compatible
         printers.
       - Emulation of beeper through PC beeper, and of 128K sound through
-        either PC beeper or AdLib (SoundBlaster) compatible cards
+        either PC beeper or AdLib (SoundBlaster) compatible cards.
+        Emulation of "ACB" stereo effects.
       - Supports digital and analogue joysticks, and mouse, controlling
         Cursor, Sinclair, Kempston or user-defined joystick.
-      - Emulates Spectrum AMS Mouse interface (used by e.g. Art Studio)
-      - Runs on any PC with 80286 or later processor; support for 8086 is
-        discontinued starting from version 3.04.
+      - Emulates Spectrum AMX Mouse interface (used by e.g. Art Studio)
+      - Runs on any PC, an 8088/8086 will do.  Some time-critical sections
+        use features of '386 processors if available.
       - Emulator runs just above 100% of actual Spectrum speed on 20 MHz
         286 and 25 MHz 386SX; can be slowed down on faster machines.
       - Z80 emulation includes emulation of R register, all unofficial
         instruction codes, and unofficial flags; interrupts once every
         1/50th emulated second; I have tried to make each instruction
         execute in a time proportional to the time taken on a real Z80.
+        In some modes T-states are counted, and 'virtual' time is exact.
       - Registered package includes all source files.
       - Interface I and Spectrum 128's "p" channel input/output can be
         re-routed to LPT or COM port, or to a file.
@@ -122,15 +129,17 @@ Contents:
       - Simple tracing feature
       - Opcode mapping feature, tags bytes that are executed during
         emulation; useful for debugging and disassembling purposes.
-        (It is meant to be used with the disassembler program DNSA by
-         Leslie Styles, lms@soton.ac.uk)
-      - Multi-level support as in XZX 0.5.2; also support of .SLT files.
+        (It can be used with the disassembler program DNSA by Leslie Styles,
+        lms@soton.ac.uk)
+      - Multi-level (LLT) support as in XZX 0.5.2; also support of .SLT
+        files.
       - Emulator can set a breakpoint, invisible to the running program.
       - Emulator can load and save blocks of Spectrum memory to disk
         directly.
-      - Emulator can run under Windows (95).
+      - Emulator can run under Windows (95).  Starting from version 4,
+        it can run windows in VGA mode.
       - Supports VGA, EGA, CGA and Hercules video adapters including
-        monochrome VGA.  (Support for Plantronics discontinued.)
+        monochrome VGA.  (No support for Plantronics anymore.)
 
     There is quite a lot to explain in this documentation.  First of all
     the emulator itself requires some of your PC's resources.  It is not
@@ -146,7 +155,7 @@ Contents:
     world, like the obvious keyboard and the screen, but also the
     microdrives, the DISCiPLE/Plus D disk interfaces, the tape interface,
     the beeper, the sound chip of the Spectrum 128, the Kempston joystick,
-    the AMS Mouse, the ZX Printer interface, and the RS232 channel of the
+    the AMX Mouse, the ZX Printer interface, and the RS232 channel of the
     Interface I and Spectrum 128 can be used to communicate with PC
     channels in some way. For instance, the keyboard is connected to the PC
     keyboard, and the tape I/O can be routed to a file, as well as to a
@@ -180,56 +189,68 @@ Contents:
     There is by now a great lot of Spectrum-related information and
     software available on the net.  A good starting point is the FAQ
     (Frequently Asked Questions) list originally started by Marat
-    Fayzullin, and now maintained by Damien Burke.  It can be found at
-    http://www.cs.bham.ac.uk/~dmb/speccy/faq.html.  It is also available at
-    ftp://ftp.nvg.unit.no/pub/sinclair/docs/specfaq.  This latter site
-    carries a lot of Spectrum snapshot and Sinclair-related information.
-    Highly recommended!  A long list of FTP sites carrying Spectrum
-    programs is included in Damien Burke's FAQ list.
+    Fayzullin, maintained by Damien Burke for a long time, and now in the
+    hands of Philip Kendall.  It can be found at
+
+        http://www.kendalls.demon.co.uk/cssfaq/index.html, or
+        http://www.void.demon.nl/faq/index.html, and
+        ftp://ftp.gns.getronics.nl/pub/os/sinclair/specfaq/
+
+    The latter site is also the home of "World of Sinclair", or WOS for
+    friends.  The url is:
+
+        http://www.void.demon.nl/spectrum.html
+
+    It carries enormous amounts of snapshots, tape-files and sinclair-
+    related programs, emulators and information, and links to other sites,
+    including that of Sinclair Research itself.  The other main Sinclair
+    FTP site, where many a beautiful thing started, is
+
+        ftp://ftp.nvg.ntnu.no/pub/sinclair/
+
+    A long list of other FTP sites can be found in the aforementioned FAQ
+    list.
 
     If you have access to internet newsgroups, take a look at
     comp.sys.sinclair, where many Sinclair enthousiasts meet and share
-    thoughts.  You will find lots of well-informed people there.  Please
-    read the aforementioned FAQ file before asking questions, but be
-    invited to join in afterwards.  Note: Please do *not* post binaries to
-    the comp.sys.sinclair newsgroup!
+    thoughts.  At the moment it is a very active group, and lots of
+    well-informed people participate.  Please read the FAQ list before
+    asking questions.  IMPORTANT NOTICE:  Please do NOT post binaries to
+    this newsgroup!
 
 
 
 
-
-1.2  Registering - sounds interesting!
+1.2  Registration
 
 
     'Z80' is a shareware program.  The program is not completely
     functional, and the parts which are left out are included when you
     register.  You are encouraged to give this demo version to friends, but
     DO NOT change the original archive in any way, please.  The shareware
-    version of the emulator consists of the Z80-304.ZIP archive file, which
-    should contain the following 12 files:
+    version of the emulator consists of the Z80-400.ZIP archive file, which
+    should contain the following 3 files:
 
-        Z80.EXE      - The emulator itself.
-        Z80.INI      - Default initialisation file (used by Z80.EXE).
-        Z80.PIF      - Program Info File to run 'Z80' under Windows (3.1/95)
-        Z80.ICO      - Windows icon.
-        Z80.DOC      - Documentation file for the emulator.
-        Z80FAQ.DOC   - Frequently asked questions and answers.
-        REGISTER.DOC - This file.
-        NEW.DOC      - The What's New file.
-        ROMS.BIN     - Various ROM images (used by Z80.EXE).
-        TECHINFO.DOC - Technical info about the Spectrum etc.
-        LAYOUT.SCR   - Keyboard layout help screen (used by Z80.EXE).
-        DIAGRAM.Z80  - Circuit diagram for tape interface, and calibration
+        INSTALL.EXE  - installation program
+        INSTALL.000  - installation data file
+        README.TXT   - short description of the program
 
-    The shareware version of the emulator differs from the registered
-    version in the following respects: it displays a message when the
-    program is started, and will only run normally for five minutes, after
-    which the program cannot be slowed down anymore.  Furthermore, it
-    cannot load from or save to tape, and it does not emulate the DISCiPLE
-    and the Plus D interfaces.  Everything else works as in the registered
-    version.
+    The shareware version includes WinZ80, the Windows version of Z80,
+    The registered versions of Z80 and WinZ80 feature the following extras:
 
-    If you register, you get the fully working version, and the following
+    Z80:
+
+	* Full DISCiPLE disk interface emulation
+	* Direct loading of tapes via SoundBlaster or LPT-interface
+	* No time restrictions, adjustable emulation speed at all times
+
+    WinZ80:
+
+        * Direct loading of tapes through any Windows wave input device
+          (e.g. SoundBlaster)
+        * No time restrictions, no intro window.
+
+    If you register, you get the fully working versions, and the following
     utilities:
 
 
@@ -273,121 +294,110 @@ Contents:
         Z80DUMP  - Shows the header and the contents of a .Z80 file.
 
 
-    You will also receive the source files of the emulator, the above
-    utilities and the SamRam, and you will be kept informed about future
-    updates.
-
-    You can also choose to register for the emulator without DISCiPLE and
-    Plus D emulation, if you are not interested in those parts.  The
-    registration fee is a bit lower then, but you will receive everything
-    stated above (including the DISCIPLE program); the only difference is
-    that you get a version of the emulator that will not emulate the M.G.T.
-    interfaces.
-
-    There are several registration sites, the main one being B.G. Services
-    in the U.K.  You can also register with Jimaz in the Czech Republic,
-    or David Pomeroy in New Zealand, whichever is most convenient.  Please
-    note that Friendware in Spain and Sinclair Freakeren are no longer
-    registration sites.
-
-    IMPORTANT NOTE:
-
-    When sending registrations, please either PRINT your order and address,
-    or use BLOCK CAPITALS to aid readability.  If you use a postal cheque
-    service, or direct transfer, please try to also send a letter to the
-    site with details of the payment etc.  Many payment slips are
-    unreadable copies.
+    You will also receive the source files of both emulators, the above
+    utilities and the SamRam.  You will also be kept informed about future
+    (major) updates.
 
 
 
-    B G Services, U.K.
-    ------------------
+    How to register:
+    ================
 
-    The registration fee is BP 20 or BP 15 (BP=British Pound) for the
-    version with or without DISCiPLE/Plus D emulation respectively.
-    Payment can be by cheques (Sterling on a UK bank, or Eurocheques) or UK
-    postal order made payable to B G Services.  You can also transfer
-    directly to the Giro account 324.82.16  (B G Services).  Girobank plc,
-    Bootle, Merseyside G1R 0AA.
 
-    You can also send money in cash, in which case also US Dollars and
-    German Marks (registration fee US$ 30/US$ 25, DM 50/DM 40 respectively)
-    can be accepted.
+    You can register either Z80 (the DOS program), or WinZ80, or both.
+    Registration of Z80 or WinZ80 is BP 15; registration of both programs
+    at once is BP 20.  If you register just one program, please indicate
+    clearly whether you want Z80 or WinZ80.  If you specify neither, we
+    will assume you want the DOS program.
 
-    Please do not use other currencies than British Pounds on cheques; it
-    is not economic to change.  If it is the only option available, please
-    add BP 8 to cover drawing costs.  I regret I cannot accept orders via
-    charge or credit card.
+    For those who sent their registration fee upon reading the information
+    that comes with the now obsolete version 3.05, note that Z80 v4.00
+    emulates the DISCiPLE in all cases; if you sent the BP 20 fee you will
+    receive both Z80 with DISCiPLE emulation and WinZ80.
 
-    The address is:
+    Please send the money in cash in British currency, or as a cheque made
+    payable to Chezron Software, to:
+
+                Chezron Software
+                34 Saltersgate Drive
+                Birstall
+                LEICESTER  LE4 3FF
+                England
+                Email: outletmag@yahoo.com
+                WWW: http://www.geocities.com/SiliconValley/Orchard/3420/
+                Phone/Fax: 0116 220 9651
+                From abroad: +44 116 220 9651
+
+    If this is inconvenient, you can also send US$ 20 / US$ 25, or DM 35 /
+    DM 50 in cash.  Please do NOT send cheques in currencies other than
+    British Pounds.
+
+
+
+    If you are living in the Czech Republic:
+    ========================================
+
+
+    Then it is probably more convenient to register with JIMAZ.  Also from
+    neighbouring countries it may be quicker and/or cheaper to register
+    with them.  The address is:
+
+                JIMAZ s.r.o.
+                Hermanova 37
+                170 00 Praha 7
+                Czech Republic
+                Phone:  +42 2 379 498
+                Fax:    +42 2 378 103
+                Email:  jimaz@jimaz.cz
+
+    The registration fee is Cz 500 for either program, Cz 650 for both.
+
+
+
+    Are you a registered user already?
+    ==================================
+
+    In that case you can obtain Z80 version 4.00 with DISCiPLE emulation,
+    the full WinZ80 package, and all utilities and sources, by sending BP
+    10 (US$ 15, DM 25) to Chezron Software or Jimaz (see the addresses
+    above).  Please clearly indicate the following:
+
+           * That you apply for an update,
+           * Your name,
+           * Your current address and home country,
+           * If different, the address under which you registered, or last
+             updated, your version of Z80,
+           * The version of Z80 you own (e.g. 3.05 or 2.01 or ...), and
+             whether it emulates the DISCiPLE
+
+
+
+
+    The tape interface
+    ==================
+
+    The interface described by the circuit diagram in DIAGRAM.Z80 provides
+    a reliable means for loading any Spectrum program into Z80.  If you
+    don't want to make this interface yourself, a ready built one can be
+    obtained through B G Services, for BP 14.50.  These are professional
+    quality items built into 25W 'D' connectors.  The address is:
 
                 B G Services
                 64 Roebuck Road
                 Chessington
                 Surrey KT9 1JX
-                (United Kingdom)
+                United Kingdom
+                Phone: (0181) 287 4180  (from abroad: +44 181 287 4180)
+                Fax:   (0181) 391 0744  (from abroad: +44 181 391 0744)
+                Email: briang@bgserv.demon.co.uk
 
-    Telephone enquiries on (0181) 287 4180, Fax (0181) 391 0744, or from
-    abroad: +44 181 287 4180 and +44 181 391 0744 respectively.
-
-    B G Services can also supply ready built tape interfaces for BP 14.50.
-    These are professional quality items built into 25W 'D' connectors.
-    (If this archive is old, please enquire on price before ordering)
-
-    Files will be on a 3.5" HD disc together with some ready converted
-    software, which is either PD, or has the approval of the authors.
-    Other disc sizes may be requested, but these may not contain all the
-    extra files.
-
-
-
-
-    Jimaz, Czech Republic
-    ---------------------
-
-    For registrations in the Czech Republic, you can contact Jimaz.
-
-                JIMAZ s.r.o.
-                Hermanova 37
-                170 00 Praha 7
-                phone: +42 2 379 498
-                fax:   +42 2 378 103
-                Email: vondrack@cslab.felk.cvut.cs
-
-    Registration fee is 500 and 650 Czech crowns.
-
-
-
-    David Pomeroy, New Zealand and Australia
-    ----------------------------------------
-
-    For registrations in New Zealand and Australia, contact
-
-                David Pomeroy
-                P O Box 2939
-                Shortland Street
-                Auckland
-                New Zealand
-                Phone: (09) 627-9618
-                Email: davidpom@iconz.co.nz
-
-
-    The registration fee is 40/50 NZ$, or 30/40 AUS$.
-
-
-
-                              ==================
 
 
 
     All sites reserve the right to ignore any order which does not comply
     with the conditions above.
 
-    If you have an older registered version and wish to upgrade, please
-    contact your registration site, sending return postage.  Updates within
-    the same version number and normally sent free if a disc and return
-    postage is received.  Updates from previous versions will carry a small
-    update fee.
+
 
 
 
@@ -395,19 +405,27 @@ Contents:
 
 
     I used to have a list of other emulators for the PC and other computers
-    here, but the list in Marat Fayzullin/Damien Burke's FAQ was much more
-    complete and detailed, so I deleted mine.  It lists:
+    here, but the list in Marat Fayzullin/Damien Burke's/Philip Kendall's
+    FAQ was much more complete and detailed, so I deleted mine.  Philip's
+    latest count is:
 
-    14 emulators for PC's,
-    6 for the Commodore Amiga,
+    32 emulators for PC's (DOS or Windows),
+    9 for the Commodore Amiga,
+    7 for UNIX platforms,
     4 for the Acorn Archimedes,
-    4 for UNIX platforms,
-    3 for the Macintosh,
-    1 for the Atari ST,
-    1 for the NeXTStep, and
+    4 for the Sinclair QL,
+    4 for the Macintosh,
+    3 for the Atari ST,
+    3 written in Java,
+    2 for the PlayStation,
+    2 for OS/2,
+    1 for the NeXTStep,
+    1 for the Psion palmtop computer,
+    1 for the MSX,
+    1 for the Sam Coupe, and
     1 very old one for the Commodore 64
 
-    I believe this makes the Sinclair ZX Spectrum the most often emulated
+    This probably makes the Sinclair ZX Spectrum the most often emulated
     computer ever!
 
     There are also emulators available for the ZX81.  Carlo Delhez, who
@@ -424,9 +442,9 @@ Contents:
 
     From the very first beginning in november 1988, when I wrote the first
     lines of code for the emulator, Johan Muizelaar has been a very
-    demanding and critical user, being only satisfied when it was perfect.
-    Besides, there are quite a few things I would never have started
-    working on if he hadn't insisted that I would!
+    demanding and critical user, and hard to satisfy. Besides, there are
+    quite a few things I would never have started working on if he hadn't
+    insisted that I would!
 
     I have also profited much from the fine cooperation with Brian Gaff,
     who, besides handling the UK registrations, also generates a continual
@@ -441,8 +459,11 @@ Contents:
     Disciple and Plus D interfaces in this file.
 
     
-    Finally, thanks are due to
+    Finally, many thanks are due to
 
+    o   John Elliott, Gerardo Oporto Jorrin, Tomaz Kac, Philip Kendall,
+            Bernard Lutz, Lee Tonks and Wojtek Wasilewski for their
+            testing of (Win)Z80 version 4.00,
     o   Carlo Delhez for information on the '128 and several other things,
     o   Andre Mostert for some more '128 info and info on EMS memory,
     o   Walter Prins for many '128 programs,
@@ -459,8 +480,34 @@ Contents:
     o   Ian Cull for enhancing the DISCiPLE program and two bugfixes,
     o   Bert Lenaerts for information on the AZERTY keyboard,
     o   Chris Lemon for fixing a bug in the CALL instruction,
+    o   Robert Zmyslowicz, Einar Gattoni Saukas, Bernhard Lutz, Erik Kunze
+            and Lee Tonks aka Blood for their thorough beta-testing of
+            v3.05.
+    o   Tomaz Kac for developing the .TZX format,
+    o   Ian Lowndes for telling me about the speed bug in Z80 v3.05,
+    o   Luca Bisti for suggesting to use the OPL3 sound chip, and writing
+            some code to implement this,
+    o   Wim Oudshoorn for suggesting how to remove video snow in VGA modes,
+    o   Brian Cavers for suggesting a bugfix regarding the Disciple,
+    o   Christopher Heys for some good ideas to improve the user-interface,
+    o   Bernard Lutz for many bug reports and ideas,
+    o   Martin Jaroz for bug reports on .TAP/.VOC file loading and saving,
+    o   Wojtek Wasilewski for bug reports on the RS232 redirection,
+    o   Niccolo Rigacci for spotting a number of errors in the docs,
+    o   James McKay for spotting a bug in the emulation core,
+    o   Cristian Secara for his idea for the interrupt frequency switch,
+    o   Einar Gattoni Saukas for half a dozen good ideas,
+    o   Erik Kunze for solving a bug in the snapshot save routines,
+    o   Alastair Booker for his thorough information on the AY chip,
+    o   Ian Collier for precise information on Z80 timings, and for some
+            important experiments on the AY chip,
+    o   Damion Yates for a solution of a problem on Novell networks,
+    o   Gerardo Oporto Jorrin for a bug report on the RES/SET instructions,
+    o   Igor Eged for noting a bug in the '128 OUT-port emulation,
+    o   The people from comp.sys.sinclair, for making lots of suggestions,
+            telling me that they like the program, and generally for
+            keeping the Spectrum alive
 
-    and many more not mentioned!
 
 
 
@@ -468,18 +515,17 @@ Contents:
 1.5  Disclaimers
 
 
-    The last version contained a few bugs, but this version is guaranteed
-    to be bug-free.  You can safely operate nuclear power plants or life
-    support systems with this software.  And if it still happens to break
-    down, feel free to sue me.
+    The Disciple part still contains bugs, most notably one connected to
+    writing to an OPEN-type file.  Depending on the floppy drive system,
+    Disciple disks may give problems reading, writing or formatting.  Apart
+    from these problems, the system works quite well since version 3.05.
 
-    Many of the bugs that disfigured the previous version are gotten rid of
-    now.  Most notably, the problem that saving a Disciple/+D snapshot
-    caused old data to be overwritten has been fixed.  On the other hand,
-    FORMATting Disciple/+D disks still has its problems, but, depending on
-    the machine in question, they have overcome in particular cases.
+    Hi-color resolution emulation, or "rainbowing", is not perfect.  What
+    lacks is complete emulation of ULA bus contention.  This is the only
+    part of the emulation that is (deliberatly) imperfect.  Making this
+    exact would make the emulation speed two times as slow.
 
-    Some people have sent me bug reports, for which I am very grateful.  I
+    Many people have sent me bug reports, for which I am very grateful.  I
     have removed most of those, but have not been able to remove them all,
     sometimes because the report was too vague and/or irreproducible on my
     machine, or because of a mixture of reasons like: difficult to find,
@@ -522,24 +568,14 @@ Contents:
 2.1  Starting the emulator
 
 
-    The emulator will work on any PC with 640K memory and at least a 80286
+    The emulator will work on any PC with 640K memory and at least a 8086
     processor, with a VGA, EGA, Hercules or CGA video adapter.  If
-    available, it will also use EMS memory, an Adlib compatible soundcard,
-    the SoundBlaster card, a mouse, and an analogue or digital joystick.
+    available, it will also use EMS memory, an Adlib (SoundBlaster)
+    compatible soundcard, the SoundBlaster card, a mouse, and an analogue
+    or digital joystick.
 
     The emulator will first read in the switches that are given in the
-    Z80.INI file.  You can enter switches there just like you do on the
-    command line.  Lines starting with a % sign are ignored; they are used
-    for comments.
-
-    After any switches, you may specify a snapshot file on the command
-    line. This file will then be loaded and executed directly.  The
-    extension .Z80 is not necessary.  The emulator will also read .SNA
-    files (the snapshot format of, amongst others, Arnt Gulbrandsen's JPP);
-    you don't have to convert them to .Z80 files (but you may want to to
-    save disk space), and it reads .SLT files (containing snapshots plus
-    additional data, mostly level data for games consisting of various game
-    levels).
+    Z80.INI file.  See comments in the file itself for instructions.
 
     The emulator tries to figure out what hardware is available, and uses
     things as it finds them.  Most of the time this will work without you
@@ -548,6 +584,13 @@ Contents:
     use often can be put in the Z80.INI file.  If you give a switch a
     second time, for instance if it is also in the Z80.INI file, it will
     disable it again.
+
+    After any switches, you may specify a snapshot file on the command
+    line. This file will then be loaded and executed directly.  The
+    extension .Z80 is not necessary.  The emulator also reads .SNA snapshot
+    files, and .SLT files (which contain snapshots together with data, for
+    programs that have multiple levels that originally were loaded from
+    tape).
 
     If you're using a Trident VGA with version 3 BIOS, you may see the
     picture compressed at the top of the screen, while the bottom half
@@ -562,31 +605,15 @@ Contents:
     colours becoming indistinguishable.  Use -xb to use grey tones instead
     of colours.
 
-    If you are using Hercules, try starting the emulator with -xh on the
-    command line.  The emulator will use a non-standard Hercules mode to
-    display a full-screen Spectrum picture.  You may need to calibrate your
-    monitor to make the image steady.
-
-    If you're using Plantronics, try -p and -q to see which gives the best
-    result.
-
-    If you haven't got EMS memory, the page swapping of the Spectrum 128
-    cannot be emulated exactly, and, more seriously, it is extremely slow.
-    Although most programs will work, they will be too slow to be of any
-    use.  Also, the emulator needs lots of base memory if no EMS memory is
-    present; if you don't have enough, try specifying -xt on the command
-    line to make the emulator use as little memory as possible (by
-    shrinking several buffers).  The emulator uses 332K or 572K of base
-    memory (with and without EMS memory respectively), and 47K less in both
-    cases if -xt is specified.  If this is still not enough, try to use
-    -xu, which saves 83K, but then Hi Resolution Colour emulation does not
-    work anymore.
-
-    On 386 and 486 machines you can emulate EMS by software using EMM386
-    for instance.  The speed of the EMS emulator determines in part the
-    emulation speed of Spectrum 128K programs, so it may be wise to try a
-    few for the best results.  I use QEMM, which seems to be faster than
-    EMM386.
+    It is highly recommended to have EMS memory available when running Z80.
+    Use e.g. EMM386.SYS for this.  If there is no EMS memory, the page
+    swapping of the Spectrum 128 is emulated imperfectly, and very slowly.
+    (The emulator warns for this at startup.)  Moreover, with no EMS
+    memory, the emulator needs lots of base memory: 578K instead of 338K.
+    If this causes problems, use switch -xt, which reduces several buffers
+    to a bare minimum, saving 51K.  If this is not enough, use -xu which
+    saves 86K, but then hi-resolution color emulation does not work
+    anymore.
 
     The Spectrum 128 has a built-in sound chip.  If you have an Adlib
     compatible soundcard installed, the Spectrum 128 sound will be played
@@ -617,26 +644,23 @@ Contents:
     If the emulator erroneously detects an analogue or digital joystick,
     use the switch -kk.
 
-    The emulator can now also be run under Windows 3.1!  However, you
-    cannot use the tape interface and Real mode doesn't work anymore.  In
-    version 3.04, keyboard handling under Windows is much improved, and
-    works as well as without Windows.  If you let the emulator run
-    full-screen you may use EGA or VGA, if you want to run it windowed
-    you'll have to use CGA, because the virtual video display driver of
-    Windows cannot handle the VGA mode I use (although it's only a standard
-    text mode; even Windows 95 doesn't know how to handle it). You'll
-    probably want other default settings of some parameters (such as the
-    video mode) if you run the emulator under Windows; the emulator will
-    always use the .INI file in the directory of the Z80.EXE file so the
-    other switches must be put on the command line or in a .PIF file. An
-    example .PIF file (which runs the emulator in windowed CGA mode) and a
-    .ICO icon file are supplied.
+    The emulator is best run in a true DOS environment, but also works in a
+    Windows (95) DOS box.  However, you cannot use the tape interface or
+    Real Mode under Windows: these are inherently non-multitasking
+    functions.  From version 3.04, keyboard handling under Windows is much
+    improved.  In version 4.00, Z80 by default chooses a standard graphics
+    mode (instead of a non-standard text mode) on VGA cards, which Windows
+    (95) is able to convert and show inside a window.  However if you run
+    Z80 full-screen, it is better to use the text mode, which is selected
+    by switch -v.  This mode is faster, and displays those loading stripes
+    in the border better.  The virtual video driver of Windows 95
+    unfortunately does not understand this mode.
 
-    The emulator measures the speed of the computer it runs on in the
-    normal way.  Under Windows 95 this gives reliable results; however,
-    Windows 3.1 causes Z80 to run about 3 to 4 times slower than normal.
-    You may have to tinker with the speed setting to get it to run at a
-    reasonable speed.
+    At startup, the emulator measures the speed of the computer it runs on.
+    Under Windows 95 this gives reliable results; however, Windows 3.1
+    causes Z80 to run about 3 to 4 times slower than normal.  You may have
+    to tinker with the speed setting to get it to run at a reasonable
+    speed.
 
     The emulator will automatically detect whether Windows is running, and
     act appropriately.  To run the emulator in Windows compatibility mode
@@ -647,14 +671,15 @@ Contents:
     When running the emulator under Desqview, use -e for EGA mode display.
 
     At present running under OS/2 is not a good idea as it will crash if
-    the speed is altered.
+    the speed is altered.  As nobody is using OS/2 anyway, I'm probably not
+    going to try to fix this bug.
 
-    These are the most important switches that you have to specify when you
-    start the emulator.  Most of the other switches are used to select
-    default values for various things which can also be changed when the
-    emulator is running.  Some useful things to select are default
-    directories for .Z80, .TAP and .MDR files; these will be explained
-    below.
+    So that are are the most important switches that you have to specify
+    when you start the emulator.  Most of the other switches are used to
+    select default values for various things which can also be changed when
+    the emulator is running.  Some useful things to select are default
+    directories for .Z80/.SNA/.SLT, .TAP/.TZX/.VOC and .MDR files; these
+    will be explained below.
 
 
 
@@ -732,12 +757,12 @@ Contents:
     Multiface 128 are not saved.)  The settings that are saved are those
     that are program dependent, for instance which joystick emulation is
     used, and more technical settings like those of the R register, LDIR
-    and Issue 2 emulation, double interrupt frequency and video
-    synchronisation.  These are explained below.
+    and Issue 2 emulation and video synchronisation.  These are explained
+    below.
 
     Loading a .Z80 file will cause several settings to be changed.
     Resetting the Spectrum will not reset these settings to their default
-    values! Especially the joystick emulation setting change can be
+    values!  Especially the joystick emulation setting change can be
     confusing.
 
     All settings can be checked and changed in the Change Settings menu,
@@ -748,10 +773,11 @@ Contents:
     remarks on these options see section 2.6, and section 5.1 for more
     technical details.  Other settings and switches are:
 
-    H - Hi resolution colour emulation, also called 'coppering'.  To
-    eliminate flickering of moving characters, and to see some colour
-    effects otherwise not visible.  Also, this allows you to see the famous
-    loading stripes in the border.  See section 2.4 for more information.
+    H - Hi resolution colour emulation, also called 'coppering' or
+    'rainbowing'.  To eliminate flickering of moving characters, and to see
+    some colour effects otherwise not visible.  Also, this allows you to
+    see the famous loading stripes in the border.  See section 2.4 for more
+    information.
 
     2 - Issue 2 emulation will turn the emulated Spectrum in an Issue 2
     Spectrum.  (This option also works, but is out of place, in Spectrum
@@ -762,12 +788,20 @@ Contents:
     S - sound enables you to turn off all sound, useful for late-night
     playing.
 
-    D - double interrupt frequency is useful for slow machines, as some
-    programs will run faster when this option is on.  If you're typing in a
-    BASIC program on a slow machine, always turn this on, since the
+    F - toggle between 50 Hz frame interrupt rate (the standard value) and
+    some value defined via the switch -dN, setting the frame rate to 100/N
+    Hz.  Without switches, the alternate rate is 100 Hz.  If -dN is used
+    the default rate is set to 100/N Hz and alternate rate to 50 Hz; is -dN
+    is specified twice (with the same divisor N) then default and alternate
+    rate are swapped.
+
+    Doubling the interrupt frequency is useful for slow machines, as
+    some programs will run faster when this option is on.  If you're typing
+    in a BASIC program on a slow machine, always turn this on, since the
     keyboard, which is polled by an interrupt routine, will respond much
-    better.  On the other hand, some programs will crash with this option
-    active.
+    better.  On fast machines, this feature is useful for running Spectrum
+    programs quickly while keeping a normal keyboard response.  Some
+    programs will crash with a frame interrupt rate different from 50 Hz.
 
     V - video synchronisation is used to remove the flickering of moving
     characters in some programs.  You can choose between Normal, High and
@@ -845,8 +879,7 @@ Contents:
     The function keys have several special functions.  See the previous
     section.
 
-    CTRL-Break and CTRL-ALT-DEL quit the emulator.  Better use F10-Q-Y
-    though.
+    CTRL-Break quits the emulator.  Better use F10-Q-Y though.
 
     The punctuation keys - = ; ' , .  / and their shifts: _ + : " < > ?
     have the effect of pressing Symbol Shift and the corresponding letter
@@ -863,11 +896,11 @@ Contents:
     also be pressed with the NumLock key (but see the discussion above of
     the -xs switch).
 
-    If you're running the emulator on a slow computer, try selecting double
-    interrupt frequency.  Most programs poll the keyboard by interrupt, in
-    any case the ROM does, and doubling the frequency with which this
-    happens will make the emulated Spectrum react much more quickly on your
-    keystrokes.
+    If you're running the emulator on a slow computer, try doubling the
+    interrupt frequency (switch -d).  Most programs poll the keyboard by
+    interrupt, in any case the ROM does, and doubling the frequency with
+    which this happens will make the emulated Spectrum react much more
+    quickly on your keystrokes.
 
     If you've got an AZERTY keyboard, the standard mappings of the keys
     won't work at all properly.  Include the switch -xz in your Z80.INI
@@ -909,9 +942,11 @@ Contents:
     Simultaneous keypresses on the PC keyboard are only transmitted to the
     PC to a certain extent, depending on the particular keyboard.  My old
     keyboard could handle TAB and the keys on the numerical keypad
-    simultaneously, but my new keyboard can't.  There is absolutely nothing
-    to be done about it.  Playing games can be a problem sometimes.  You'll
-    have to live with it.  All information sent by the keyboard is used.
+    simultaneously, but my new keyboard can't; pressing TAB blocks the
+    numeric keypad.  Therefore, Z80 does not respond to (simultaneous)
+    keypresses the same way as the Spectrum does.  This is not a bug, and
+    there's nothing to be done about it.  All information sent by the
+    keyboard is used.
 
 
 
@@ -984,7 +1019,7 @@ Contents:
     little time even if there are no changes, the sound is a bit harsh.  If
     you select real mode, the emulator won't update the screen and music
     will sound good.  If you select HRC mode, the sound will be even
-    harsher than it does in normal mode.
+    harsher than it is in normal mode.
 
     The sound of the Spectrum 128's sound chip is played through the Adlib
     card; if you haven't got such a card some notes are played through the
@@ -1183,8 +1218,8 @@ Contents:
     In this mode there are three other possible choices in the menu.  First
     of all, D selects a tape-file directory where the .TAP files will be
     saved into and loaded from.  A default directory can be selected by
-    putting the -xs switch on the command line or in the Z80.INI file; for
-    example -xs c:\spectrum\taps.
+    putting the -ts switch on the command line or in the Z80.INI file; for
+    example -ts c:\spectrum\taps.
 
     The I and O options are used to select the source and destination of
     the saving and loading: the LPT port (in/out) or SoundBlaster port
@@ -1383,7 +1418,7 @@ Contents:
     name.
 
     .SLT files can be produced using the ADDDAT utility.  See also section
-    5.9, file formats, for more information.
+    5.10, file formats, for more information.
 
     This ED FB feature first appeared in XZX 0.5.2, and was devised by
     Russell Marks.  It is now supported by many other emulators as well.
@@ -1742,7 +1777,7 @@ Contents:
 
 
     The emulator support several joysticks and the Microsoft mouse, to
-    control several Spectrum joystick interfaces, and the AMS Mouse
+    control several Spectrum joystick interfaces, and the AMX Mouse
     interface.  First, joysticks are discussed.
 
     As was already said in the introduction, the emulated Spectrum joystick
@@ -1813,17 +1848,17 @@ Contents:
     the mouse control the joystick too.  (By default, this switch is
     already in the Z80.INI file.)
 
-    Finally, the Microsoft mouse can control the AMS Mouse interface, as
+    Finally, the Microsoft mouse can control the AMX Mouse interface, as
     supported for example by Art Studio.  Specify -ka on the command line
     to select this option.  The mouse will not control the joystick
-    anymore.  Because of I/O address clashes, the AMS Mouse does not work
-    with SamRam or an M.G.T. interface enabled.  Also, since the AMS
-    interface must be initialized, and the state of the AMS interface is
+    anymore.  Because of I/O address clashes, the AMX Mouse does not work
+    with SamRam or an M.G.T. interface enabled.  Also, since the AMX
+    interface must be initialized, and the state of the AMX interface is
     not saved in the .Z80 snapshot file, it may be necessary to make the
     snapshot before the point at which the Spectrum program initializes the
-    AMS interface.  The program Art Studio re-initializes the AMS interface
+    AMX interface.  The program Art Studio re-initializes the AMX interface
     regularly, however, so with this program you don't have to worry about
-    it.  You still need to customize the program to use the AMS mouse of
+    it.  You still need to customize the program to use the AMX mouse of
     course, so a snapshot of Art Studio will not automatically work; you
     need to load the original from tape again, and go through the
     customization procedure.
@@ -2073,22 +2108,27 @@ Contents:
 
 2.20  Quick overview of command line switches, and features
 
-
     In this section I will briefly explain all command line switches.  It
     is useful to at least once read this section carefully; there are a few
-    small handy features that will otherwise be readily overlooked. Starred
-    switches are by default put in the Z80.INI file.
+    small handy features that will are easily missed.  Starred switches are
+    by default put in the Z80.INI file.
 
        -h        Hercules graphics
        -c        CGA graphics
        -e        EGA graphics
-       -v        VGA graphics
+       -g        VGA graphics - 320x200x256 graphics mode 0x13
+       -v        VGA graphics - text mode (fast; default)
 
     Usually the emulator will by itself correctly determine which mode to
-    use.  VGA mode is by far the best: it is the only mode in which all
-    colours are correct (including the bright hues), and it is also the
-    fastest mode.  Versions prior to v3.04 also had Plantronics and Extended
-    Hercules as possible video modes; these are removed to save memory.
+    use.  VGA mode -v is the best: it is the only mode in which all colours
+    are correct (including the bright hues), has the best border emulation,
+    and it is also the fastest mode.  However, those programmers of Windows
+    did not implement a full VGA emulation, and in a Windows DOS-box, mode
+    -v will only work correctly in full-screen mode.  In windowed mode,
+    mode -g does work.  In a DOS box, Z80 by default chooses -g.
+
+    Versions prior to v3.04 also had Plantronics and Extended Hercules as
+    possible video modes; these were removed to save memory.
 
        -xv       400-line VGA (for some Tridents)
        -xb       Black-and-white VGA
@@ -2155,12 +2195,23 @@ Contents:
 
        -2        Emulate an Issue-2 Spectrum
 
-    Make the EAR line 1 when there's no signal, instead of 0 as it is on
-    Issue 3 Spectrum's.  Some old programs need it (Spinads for example).
+    The EAR input line depends on the EAR and MIC output, and the signal
+    fed in to the Spectrum's EAR plug, and this dependence differs between
+    model 2 and model 3 Spectrums.  Some old programs only work on Issue 2
+    Spectrums.  The problem is usually that the program does not respond to
+    the keyboard.  Try Spinads for example.
 
-       -d        Double interrupt frequency (100 Hz)
+       -dN       Set frame interrupt frequency to 100/N Hz
 
-    On slow computers this may help to get the keyboard to respond better.
+    There used to be an option -d which set the frame interrupt frequency
+    to 100 Hz; therefore now -d is equivalent to -d1.  -d2 is the default
+    setting, 50 Hz.  On slow computers, -d helps to get a better keyboard
+    response.  On the other hand, setting for instance -z350 -d7 makes Z80
+    emulate a Spectrum 3.5 times as fast while maintaining normal keyboard
+    response.  At run time, the frame interrupt rate may be toggled between
+    50 Hz and the value set by this switch.  If you set -dN twice, then the
+    emulator starts off with a 50 Hz frame rate, with alternate rate set to
+    100/N Hz.
 
        -aN       Redirect Spectrum RS232 output to LPTn
        -oN       Redirect Spectrum RS232 output to COMn
@@ -2191,7 +2242,7 @@ Contents:
     select it.
 
     *  -km       Use MS Mouse to control Spectrum joystick
-       -ka       Emulate Spectrum AMS mouse interface controlled by MS Mouse
+       -ka       Emulate Spectrum AMX mouse interface controlled by MS Mouse
        -kz       Use digital Zandbergen joystick
        -kk       Do not look for analogue or Zandbergen joystick
        -k1       Do not use 2nd analogue joystick as Sinclair 1 (1,2,3,4,5)
@@ -2201,9 +2252,9 @@ Contents:
     controlled by the arrow keys and TAB, 5, INS (0) on the PC keyboard,
     and optionally also by a digital joystick, and analogue IBM joystick or
     a mouse.  Use -kk if the emulator erroneously detects either joystick.
-    If -ka is specified, the PC mouse controls the emulated AMS mouse
+    If -ka is specified, the PC mouse controls the emulated AMX mouse
     interface.  Because of I/O address clashes, this only works with SamRam
-    and the M.G.T. interfaces disabled.  The AMS mouse is supported by e.g.
+    and the M.G.T. interfaces disabled.  The AMX mouse is supported by e.g.
     Art Studio.
 
     A second analogue joystick will, when present, always be attached to
@@ -2282,6 +2333,14 @@ Contents:
     program would lock up (as versions 3.00 to 3.02 did; in v3.03 and above
     you can BREAK into such a loop).
 
+    If a printer becomes off-line or unavailable during printing, Z80 will
+    try to finish its job anyhow, and the program may appear to hang.
+    Pressing the space bar will make Z80 break the printing loop, and
+    signal to the Spectrum program that the ZX Printer does not exist.
+    This, in turn, will cause the ROM printer routines to just skip
+    printing.  Z80 will periodically check the printer status, and when it
+    becomes available again will make the ZX Printer appear again.
+
        -0i       Disable Disciple interrupt
 
     Normally the Disciple and Plus D have their own interrupt routine being
@@ -2291,6 +2350,13 @@ Contents:
     computers this may still be too much, in which case -0i completely
     disables the Disciple and Plus D interrupts.  Do not try this in
     Unidos!  (which is not emulated [yet].)
+
+       -0sND     Set Disciple/+D drive N to D:
+
+    By default, the Disciple/+D drive 1 controls drive A: while 2 controls
+    B:.  If, for example, your B: drive is your only 3.5'' drive, you might
+    want to map both 1 and 2 to B: which is accomplished by putting -0s1b
+    in the Z80.INI file.
 
        -xp D     Select default directory D for .Z80 snapshot files
 
@@ -2331,14 +2397,14 @@ Contents:
     or EAR are not saved to the log file, to save disk space.  If, for some
     reason, you want all OUTs to be logged, -xg will do the trick.  The -xy
     option can be used for producing a somewhat crude trace; see section
-    5.9 on the .OUT format for more details.
+    5.10 on the .OUT format for more details.
 
        -0m F     Build map of opcode locations in file F
 
     When this option is specified, Z80 keeps a map of the 65536 address
     locations in memory, and tags the address of each instruction that is
     emulated.  When the emulator is shut down, this map is written to disk
-    as a 8192 byte file.  See section 5.9 of TECHINFO.DOC for an
+    as a 8192 byte file.  See section 5.10 of TECHINFO.DOC for an
     explanation of the file format, and remarks on how to use this feature.
 
        -xw       Run in Windows compatibility mode
@@ -2444,7 +2510,11 @@ Contents:
     the output addresses of the "p" channel have been changed by the M.G.T.
     ROM.  Use the "b" channel of the Interface I instead.  You can reset
     the channel to the ZX Printer by entering POKE @11,1 while still
-    emulating the M.G.T. interface.
+    emulating the M.G.T. interface.  Note however that the printer OUT port
+    #FB of the ZX Printer is used by the Disciple printer interface, so
+    that using the ordinary ZX Printer code of the ROM results in rubbish
+    coming out of the printer.  The +D can use the Centronics interface and
+    the old ZX Printer at the same time.
 
     Although by default channel #3 prints to the ZX Printer, in all
     hardware modes, if a DISCiPLE/+D is emulated output to the ZX Printer
@@ -2480,6 +2550,21 @@ Contents:
     If the breakpoint address happens to point to an operand instead of an
     opcode, the emulator will not respond.
 
+
+    7.  Emulation of floating bus
+
+    Reading from e.g. port #FE accesses the ULA bus which is used to read
+    the screen memory.  While the ULA is generating the border or
+    horizontal or vertical retrace signals, this will result in #FF;
+    otherwise, the value returned is the ATTR or screen byte the ULA is
+    currently reading.  Some programs use this to check whether the ULA is
+    in vertical retrace (Arkanoid), some use it to actually wait for
+    specific bytes to pass, which signals that a certain part of the screen
+    is being generated (Ricochet).  Only in Hi Res Color mode will the
+    emulation of this effect be reasonably accurate to get Ricochet running
+    correctly.  Arkanoid runs reasonably well, but due to the way it is
+    implemented it produces 'ticks' in the speaker when it is not run in
+    HRC mode.
 
 
 
@@ -2675,7 +2760,7 @@ Contents:
     eight lines are the first eight instructions, starting at the Memory
     Pointer, from here on abbreviated by MP.  At first, MP is zero.  The
     disassembler knows all official instructions, and the SLL instruction.
-    If another inofficial instruction (i.e.  starting with DD, FD or ED) is
+    If another unofficial instruction (i.e.  starting with DD, FD or ED) is
     encountered, the first byte is displayed on a blank line.  The four
     lines below these display the value of PC and SP, the first nine words
     on the stack (including AF and the program counter, which have been
@@ -3232,8 +3317,46 @@ Contents:
 
 
 
+4.7  The DISCiPLE and Plus D Interfaces - The system variables
 
-4.7  The Spectrum 128
+
+    The system variables reside in the RAM of the interface, and cannot be
+    read of changed by using the normal POKE statement.  For access to
+    these locations the designer of the Disciple and +D ROM has implemented
+    the POKE @x,y command.  It changes the value at address (#0298+x) in
+    the interface's RAM.  Here are the system variables, with their
+    meaning.  Default values are between brackets.
+
+    Note that when y (the second argument) of a POKE @ command is larger
+    than 255, it is interpreted as a word, and it is poked at locations x
+    and x+1.  Handy for locations 14 and 16.
+
+    POKE @0: (7)   Border change mask when reading/writing disks
+    POKE @1: (80+128=208)   Number of tracks of drive 1. 128 means DS
+    POKE @2: (208) Same for drive 2
+    POKE @3: (6)   Step rate in ms (may not be lower than 6)
+    POKE @4: (1)   Network (0=off, 1=master, 2..10=assistant, 11..63=slave)
+    POKE @5: (80)  Printer line width (# of chars printed before CR is
+                   inserted)
+    POKE @6: (0)   Control code conversion (0=on, 1=off)
+    POKE @7: (12)  Printer line feed when printing graphics (1/72th inches)
+    POKE @8: (1)   Number of Line Feeds (10) inserted after each CR (13)
+    POKE @9: (0)   Left margin: number of spaces printed after each CR
+    POKE @10:(0)   Convert some characters into graphics (0=off, 1=on)
+    POKE @11:(0)   Enable MGT Centronics printer interface (0=yes,
+                   1=route to standard "p" channel, i.e. ZX Printer)
+    POKE @12:(word 0)     Unused
+    POKE @14:(word 0)     Basic extension call vector
+    POKE @16:(word #3b0)  Basic extension call vector (I think)
+
+    The default value of variable 10 was changed to 0.  Previous rom images
+    supplied with Z80 had @11 set to 1 (printer disabled) and @8 to 0
+    (don't add line feeds), but these were not Disciple/+D defaults, so
+    they were changed back in version 3.05.
+
+
+
+4.8  The Spectrum 128
 
 
     The main new features of the Spectrum 128 are its larger memory, that
