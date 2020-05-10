@@ -1,0 +1,2498 @@
+;
+;   This file is part of the registered Spectrum emulator package 'Z80'
+;   version 2.01, and may not be distributed.  You may use this source for
+;   other PC based Spectrum or Z80 emulators only after permission.  It is
+;   however permitted to use this source file or parts thereof for Spectrum
+;   or Z80 emulators on non-PC based machines, provided that the source is
+;   acknowledged.
+;
+;                                                       Gerton Lunter, 3/5/93
+
+startup segment para public
+
+oldversionload equ 1
+
+;
+;Contains the microdrive support routines (see also XTRA.C), and
+;the RS232 support routines. Also contains much of the IN/OUT handling
+;routines.
+;
+;Several memory handling routines have been transferred from misc.8 to
+;here.
+;
+
+BUFSIZE EQU 256                 ;OOK IN Z80.8 !!!!!
+
+IN_IF1: AND BL,011000XB
+        CMP BL,010000XB
+        JZ STATUS
+        CMP BL,011000XB
+        if Z jmp mdrv_in
+        CMP BYTE CS:RS_IN,2
+        JAE READ_BIT
+        MOV BYTE CS:RS_IN,0
+        CMP BYTE CS:CTS,0       ;CLEAR TO SEND?
+        JZ READ_BIT             ;NEE, GEEF NUL TERUG
+        CALL RS_READ_READY      ;STAAT DATA KLAAR?
+        JC READ_BIT             ;C=NEE
+        PUSH AX
+        CALL READ_SAVEREG
+        MOV AH,0F1              ;VIER START BITS EN 1 MARKER BIT
+        NOT AL
+        ROL AX,1
+        ROL AX,1
+        ROL AX,1
+        ROL AX,1
+        MOV CS:RS_IN,AX
+        POP AX
+READ_BIT:
+        XOR AH,AH
+        RCR WORD CS:RS_IN,1
+        RCR AH,1                ;HOGE BIT=RS232 BIT, LAGE BIT=0 (NETWORK)
+        RET
+
+
+STATUS: cmp byte cs:mdrvhandle,0
+        jz status_nomdrv
+        mov bx,cs:w[offset gapcnt]
+        inc bx
+        mov cs:w[offset gapcnt],bx
+        shr bl,1
+        shr bl,1
+        and bl,2+4                      ;SYNC and GAP
+        cmp byte cs:mdrvgap,0
+        jz status_nogap
+        and bl,2
+        and bh,1                        ;Otherwise, first wait 256 IN's
+        jz status_nogap
+        mov word cs:gapcnt,0
+        call mdrv_increase              ;Read next block
+status_nogap:
+        xor bl,4
+        mov bh,cs:b[offset mdrvwritprot]
+        and bh,1
+status_nomdrv1:
+        MOV ah,CS:B[OFFSET DTR]
+        and ah,8
+        or ah,bh
+        or ah,bl
+        RET
+status_nomdrv:
+        mov bx,6
+        jmp status_nomdrv1
+
+
+IN_0_CRASH:
+        mov byte cs:c_active,0
+        mov byte cs:c_action_code,0fd   ;in 0 crash
+        RET                             ;Actual calling of C is done in ed.8
+
+ED_GETRSBYTE:
+        CALL RS_READ_READY
+        MOV AH,64
+        JC RZ
+        CALL READ_SAVEREG
+        MOV AH,1
+RZ:     RETf
+
+READ_SAVEREG:
+        PUSH BX
+        PUSH CX
+        PUSH DX
+        PUSH DI
+        PUSH SI
+        PUSH BP
+        PUSH DS
+        PUSH ES
+        MOV AX,CS:RSCOUNT
+        ADD AX,1
+        SBB AX,0
+        MOV CS:RSCOUNT,AX
+        CALL READ_RS_BYTE       ;HAAL BYTE IN AL (VAN DISK OF COMn)
+        POP ES
+        POP DS
+        POP BP
+        POP SI
+        POP DI
+        POP DX
+        POP CX
+        POP BX
+        RET
+
+OUT_IF1:
+        AND BL,011000XB
+        CMP BL,010000XB
+        JZ CONTROL
+        CMP BL,011000XB
+        if z jmp mdrv_out
+        CMP BYTE CS:COMSDAT,0FF
+        JNZ IGNORE_NET
+        SHR AH,1
+        RCR WORD CS:RS_OUT,1
+        TEST WORD CS:RS_OUT,080
+        JZ IGNORE_NET
+        PUSH AX
+        MOV AL,CS:B[OFFSET RS_OUT+1]
+        CALL WRITE_SAVEREG
+        MOV WORD CS:RS_OUT,0
+        POP AX
+IGNORE_NET:
+        RET
+
+ED_SENDRSBYTE:
+        MOV AL,CL
+        CALL WRITE_SAVEREG
+        RETf
+
+WRITE_SAVEREG:
+        PUSH BX
+        PUSH CX
+        PUSH DX
+        PUSH DI
+        PUSH SI
+        PUSH BP
+        PUSH ES
+        PUSH DS
+        NOT AL
+        CALL WRITE_RS_BYTE
+        MOV AX,CS:RSOUTCOUNT
+        ADD AX,1
+        SBB AX,0
+        MOV CS:RSOUTCOUNT,AX
+        POP DS
+        POP ES
+        POP BP
+        POP SI
+        POP DI
+        POP DX
+        POP CX
+        POP BX
+        RET
+
+CONTROL:
+        mov byte cs:mdrv_counter,0
+        mov bh,cs:old_if1ctrl
+        xor bh,ah
+        mov cs:old_if1ctrl,ah
+        and bh,15
+        if nz call mdrv_flushbuf
+        SHR AH,1                ;COMMS DATA
+        rcr AH,1                ;COMMS CLK (save comms data temporarily)
+        sbb bx,bx
+        dec bl
+        xchg bh,cs:comsclk
+        cmp bl,bh               ;z if 1->0
+        jnz do_not_clock_in
+        mov bh,cs:comsdat       ;old commsdat: OUT 239,0 turns on mdrv motor!
+        shr bh,1
+        cmc
+        rcl cs:b[motors],1      ;shift bit in motorbyte
+        mov cs:byte dataread,0
+        mov cs:byte datawritten,0
+        push ax
+        call mdrv_update        ;to update mdrvwritprot and others
+        pop ax
+do_not_clock_in:
+        shl ah,1                ;get comms data bit
+        SBB BH,BH
+        MOV CS:COMSDAT,BH
+        shr ah,1
+        SHR AH,1                ;R/_W
+        sbb bh,bh
+        mov cs:readwrt,bh
+        SHR AH,1                ;ERASE
+        sbb bh,bh
+        mov cs:erase,bh
+        SHR AH,1                ;CTS
+        SBB BH,BH
+        MOV CS:CTS,BH
+        MOV WORD CS:RS_OUT,0    ;Reset any 'glitch' bits that may have collected
+        mov word cs:gapcnt,0    ;reset gap counter
+        RET
+
+RS_READ_READY:                  ;BYTE KLAAR? C=NEE
+        CMP BYTE CS:INMODE,2
+        JZ RS_R_R_COM
+        CMP BYTE CS:INMODE,3
+        JZ RS_R_R_DISK
+        STC
+        RET
+RS_R_R_DISK:
+        CMP WORD CS:INNUM,1     ;HANDLE=0?
+        JC RET
+        PUSH BX
+        MOV BX,CS:GETIN
+        CMP BX,CS:PUTIN
+        POP BX
+        CLC
+        JNZ RET
+        CALL DISK_READ_BLOCK    ;UPDATE VAN PUTIN EN GETIN; C=MISLUKT
+        RET
+RS_R_R_COM:
+        PUSH BX
+        MOV BX,CS:GETIN
+        CMP BX,CS:PUTIN
+        IF NZ STC
+        CMC
+        POP BX
+        RET
+
+READ_RS_BYTE:
+        XOR AL,AL
+        CMP BYTE CS:INMODE,2
+        JB RET
+        CMP BYTE CS:INMODE,3
+        JA RET
+        MOV BX,CS:GETIN
+        MOV AL,CS:[BX]
+        INC BX
+        CMP BX,OFFSET INBUF+BUFSIZE
+        IF Z MOV BX,OFFSET INBUF
+        MOV CS:GETIN,BX
+        RET
+
+WRITE_RS_BYTE:
+        MOV BX,CS:PUTOUT
+        MOV CS:[BX],AL
+        INC BX
+        CMP BX,OFFSET OUTBUF+BUFSIZE
+        IF AE SUB BX,BUFSIZE
+        MOV CS:PUTOUT,BX
+        CALL UPDAT_DTR
+        AND AH,AH
+        JNZ RET
+        CMP BYTE CS:OUTMODE,3
+        JNZ RET                         ;3=SCHRIJF NAAR DISK
+        PUSH AX
+        PUSH BX
+        PUSH CX
+        PUSH DS
+        PUSH DX
+WRIT_RETRY:
+        MOV AH,040
+        MOV BX,CS:OUTNUM
+        MOV CX,BUFSIZE-1
+        MOV DX,OFFSET OUTBUF
+        PUSH CS
+        POP DS
+        INT 021
+        JC ERROR_WRITING
+        CMP AX,0
+        JZ ERROR_WRITING
+        PUSH CS
+        PUSH CS
+        POP DS
+        POP ES
+        MOV DI,OFFSET OUTBUF
+        MOV SI,DI
+        ADD SI,AX
+        MOV CX,BUFSIZE-1
+        SUB CX,AX
+        MOV AX,CX
+        CLD
+        REP MOVSB
+        ADD AX,OFFSET OUTBUF
+        MOV CS:PUTOUT,AX
+        MOV WORD CS:GETOUT,OFFSET OUTBUF
+        CALL UPDAT_DTR
+        JMP SHORT EXIT_WRIT_DSK
+ERROR_WRITING:
+        MOV AL,0FC                      ;ERROR DURING WRITING
+        CALL CALL_C
+        CMP AL,0
+        JNZ WRIT_RETRY
+        MOV BYTE CS:OUTMODE,0           ;CLOSE OUTPUT CHANNEL
+EXIT_WRIT_DSK:
+        POP DX
+        POP DS
+        POP CX
+        POP BX
+        POP AX
+        RET
+UPDAT_DTR:
+        PUSH BX
+        MOV BX,CS:PUTOUT
+        INC BX
+        CMP BX,OFFSET OUTBUF+BUFSIZE
+        IF Z MOV BX,OFFSET OUTBUF
+        CMP BX,CS:GETOUT
+        MOV AH,0FF
+        IF Z XOR AH,AH
+        MOV CS:DTR,AH
+        POP BX
+        RET
+
+UPDATE_DTR:                             ;LEEGT EVT. BUFFER
+        PUSH SI
+        PUSH DI
+        PUSH ES
+        PUSH DS
+        PUSH DS
+        POP ES
+        MOV BX,CS:GETOUT
+        CMP BYTE CS:OUTMODE,2
+        JA END_UPDDTR                   ;DISK:VERSTUUR NIETS, UPDATE DTR
+        CALL WRIT_BYTE_READY            ;CARRY=READY
+        JNC END_UPD_DTR
+U_DTR_L1:
+        CMP BX,CS:PUTOUT
+        JZ END_UPDDTR
+        MOV AL,CS:[BX]
+        CALL WRIT_BYTE
+        INC BX
+        CMP BX,OFFSET OUTBUF+BUFSIZE
+        IF Z MOV BX,OFFSET OUTBUF
+        MOV CX,128
+WAIT_READY:
+        CALL WRIT_BYTE_READY
+        JC U_DTR_L1
+        LOOP WAIT_READY
+END_UPDDTR:
+        MOV CS:GETOUT,BX
+        MOV CX,CS:PUTOUT
+        INC CX
+        CMP CX,OFFSET OUTBUF+BUFSIZE
+        IF Z MOV CX,OFFSET OUTBUF
+        CMP BX,CX
+        MOV AH,0FF
+        IF Z XOR AH,AH
+        MOV CS:DTR,AH
+END_UPD_DTR:
+        POP DS
+        POP ES
+        POP DI
+        POP SI
+        RET
+
+WRIT_BYTE_READY:
+        MOV DX,CS:OUTNUM
+        CMP BYTE CS:OUTMODE,2
+        JZ COMN
+        MOV AH,2
+        INT 017
+        RCL AH,1
+        RET
+COMN:   MOV AH,3
+        INT 014
+        AND AX,02010
+        XOR AX,02010
+        CMP AX,1
+        RET
+
+WRIT_BYTE:
+        MOV DX,CS:OUTNUM
+        CMP BYTE CS:OUTMODE,2
+        JZ COMNW
+        XOR AH,AH
+        INT 017
+        RET
+COMNW:  MOV AH,1
+        INT 014
+        RET
+
+UPDATE_BUFSTATUS:               ;ALLEEN VOOR COMN
+        CMP BYTE CS:INMODE,2
+        JNZ RET
+        PUSH DX
+        MOV DX,CS:COMPORT
+        PUSH AX
+        MOV AX,CS:GETIN
+        DEC AX
+        SUB AX,CS:PUTIN
+        IF B ADD AX,BUFSIZE
+        CMP AX,15
+        MOV AL,9
+        IF B XOR AL,AL
+        ADD DX,4
+        OUT DX,AL
+        POP AX
+        POP DX
+        RET
+
+GETSENTBYTE:
+        PUSH AX
+        PUSH DX
+        MOV DX,CS:COMPORT
+        ADD DX,5
+        IN AL,DX
+        AND AL,1
+        JZ COM_ERROR
+        SUB DX,5
+        IN AL,DX
+        PUSH BX
+        MOV BX,CS:PUTIN
+        MOV CS:[BX],AL
+        INC BX
+        CMP BX,OFFSET INBUF+BUFSIZE
+        IF Z MOV BX,OFFSET INBUF
+        MOV CS:PUTIN,BX
+        MOV AX,CS:GETIN
+        SUB AX,BX
+        POP BX
+        IF B ADD AX,BUFSIZE
+        CMP AX,15
+        MOV AL,9
+        IF B XOR AL,AL
+        ADD DX,4
+        OUT DX,AL
+        INC DX
+COM_ERROR:
+        INC DX
+        IN AL,DX
+        STI
+        MOV AL,020
+        OUT 020,AL
+        POP DX
+        POP AX
+        IRET
+
+DISK_READ_BLOCK:
+        PUSH AX
+        PUSH BX
+        PUSH CX
+        PUSH DX
+        PUSH DS
+READ_RETRY:
+        MOV AH,03F
+        MOV BX,CS:INNUM
+        MOV CX,BUFSIZE-1
+        MOV DX,OFFSET INBUF
+        PUSH CS
+        POP DS
+        INT 021
+        JC ERROR_READ
+        MOV WORD CS:GETIN,OFFSET INBUF
+        ADD AX,OFFSET INBUF
+        MOV CS:PUTIN,AX
+        CMP AX,OFFSET INBUF+1
+EXIT_READ:
+        POP DS
+        POP DX
+        POP CX
+        POP BX
+        POP AX
+        RET
+ERROR_READ:
+        MOV AL,0FB                      ;ERROR DURING READING
+        CALL CALL_C
+        CMP AL,1
+        JZ READ_RETRY
+        MOV AH,03E
+        MOV BX,CS:INNUM
+        INT 021
+        MOV BYTE CS:INMODE,0
+        JMP EXIT_READ
+
+FLUSHOUTPUT:
+        PUSH DS
+        MOV DS,CS:SPECSEG
+        CALL UPDATE_DTR
+        MOV AX,0FFFF
+        CMP BYTE CS:OUTMODE,3
+        JNZ NODISK
+        MOV AH,040
+        MOV BX,CS:OUTNUM
+        MOV CX,CS:PUTOUT
+        SUB CX,CS:GETOUT
+        IF B ADD CX,BUFSIZE
+        MOV DX,OFFSET OUTBUF
+        PUSH CS
+        POP DS
+        PUSH CX
+        INT 021
+        POP CX
+        IF NC CMP AX,CX
+        MOV AX,0FFFF
+        IF C INC AX
+NODISK: POP DS
+        RET
+
+CLEARINPUT:
+        MOV WORD CS:GETIN,OFFSET INBUF
+        MOV WORD CS:PUTIN,OFFSET INBUF
+        RET
+
+SHELL_FLUSHBUF:
+        MOV AX,0FFFF
+        CMP CS:OUTMODE,3
+        JNZ NODISKOUTPUT
+        MOV AH,045
+        MOV BX,CS:OUTNUM
+        INT 021
+        MOV BX,AX
+        MOV AX,0
+        JC NODISKOUTPUT
+        PUSH BX
+        MOV AH,040
+        MOV CX,CS:PUTOUT
+        SUB CX,CS:GETOUT
+        IF B ADD CX,BUFSIZE
+        MOV DX,OFFSET OUTBUF
+        PUSH CS
+        POP DS
+        INT 021
+        POP BX
+        MOV CX,0
+        IF NC DEC CX
+        PUSH CX
+        MOV AH,03E
+        INT 021
+        POP AX
+        IF C MOV AX,0FFFF
+        MOV WORD CS:GETOUT,OFFSET OUTBUF
+        MOV WORD CS:PUTOUT,OFFSET OUTBUF
+        MOV BYTE CS:DTR,0FF
+NODISKOUTPUT:
+        RET
+
+CALL_C: CLI
+        PUSH DS
+        MOV DS,CS:SPECSEG
+        MOV CS:C_ACTION_CODE,AL
+        MOV WORD CS:TRAPADR,OFFSET CALL_C_RETURN
+        MOV WORD CS:TRAPSEG,SEG CALL_C_RETURN
+        JMP ENTER_C
+CALL_C_RETURN:
+        MOV AX,CS:VALUE
+        POP DS
+        STI
+        RET
+
+
+
+mdrv_update:                    ;Updates several internal variables
+        xor bx,bx
+        mov ah,cs:motors
+        mov al,0ff
+mdrv_gh_find:
+        inc al
+        shr ah,1
+        jc mdrv_gh_found
+        cmp al,7
+        jb mdrv_gh_find
+        jmp mdrv_gh_writprot    ;error (all motors off)
+mdrv_gh_found:
+        test ah,ah
+        jnz mdrv_gh_writprot    ;error (more than 1 motor on)
+        mov bl,al
+        mov al,cs:[bx+offset writprot]  ;<>0 = write protected
+        sub al,1                        ;c=1: wprot
+        sbb al,al                       ;ff=wrprot, 00=not
+        mov cs:mdrvwritprot,al
+        add bl,bl
+        mov bx,cs:[bx+offset mhandles]
+mdrv_gh_writprot:
+        mov cs:mdrvhandle,bx
+        test bx,bx
+        jnz ret
+        mov cs:mdrvwritprot,0
+        ret
+
+
+
+mdrv_flushbuf:                  ;writes mdrv buffer to cartridge file,
+                                ;resets read/write pointer and
+                                ;moves the tape forward if neccesary.
+                                ;Also loads next block if neccesary
+        cmp word cs:mdrvpointer,0
+        jz mdrv_fb_load         ;nothing to write or buffer empty
+        cmp byte cs:dataread,0ff
+        jz mdrv_increase        ;data in buffer is old
+        cmp byte cs:readwrt,0
+        jnz ret                 ;buffer full of fresh read-data, or GAP
+        call mdrv_savebuf
+mdrv_increase:                  ;increases mdrvblock etc.
+        mov word cs:mdrvpointer,0
+        mov byte cs:mdrvgap,0
+        cmp byte cs:mdrvheader,0
+        mov byte cs:mdrvheader,0
+        jnz mdrv_fb_load
+        mov byte cs:mdrvheader,0ff
+        push ax
+        mov al,byte cs:mdrvblock
+        inc al
+        cmp al,254              ;Cartridge of 127K
+        if ae xor al,al         ; (The If.1 rom can't handle 128K cartridges)
+        mov cs:mdrvblock,al
+        pop ax
+mdrv_fb_load:
+        cmp byte cs:readwrt,0
+        jz ret                  ;writing
+        push ax
+        push bx
+        push cx
+        push dx
+        push es
+        push si
+        call mdrv_getbuffer
+        jc mdrv_fb_l_nodata
+        mov cx,15
+        cmp byte cs:mdrvheader,0
+        jnz mdrv_fb_header
+        add bx,cx
+        mov cx,528
+mdrv_fb_header:
+        mov si,offset mdrvbuffer
+        shr cx,1
+        pushf
+mdrv_fb_l_transfer:
+        mov ax,es:[bx]
+        mov cs:[si],ax
+        inc bx
+        inc bx
+        inc si
+        inc si
+        loop mdrv_fb_l_transfer
+        popf
+        jnc mdrv_fb_l_nodata
+        mov al,es:[bx]
+        mov cs:[si],al
+mdrv_fb_l_nodata:               ;Now check whether this block represents a GAP
+        pop si                  ; or bona fide data. Do this by checking the
+        pop es                  ; checksum of the first 14 bytes
+        mov bx,offset mdrvbuffer
+        mov cx,14
+        xor al,al
+mdrv_fb_checksum:
+        add al,cs:[bx]
+        adc al,1
+        if nz dec al            ;This will never give 0FF
+        inc bx
+        loop mdrv_fb_checksum
+        sub al,cs:[bx]
+        mov cs:mdrvgap,al       ;<>0 if GAP
+        mov word cs:mdrvpointer,1       ;Signal: data (or GAP) in buffer
+        mov byte cs:dataread,0
+mdrv_fbl_carterr:
+        pop dx
+        pop cx
+        pop bx
+        pop ax
+        ret
+
+mdrv_fb_err:
+        pop ds
+        mov al,0ef              ;mdrv error
+        call call_c             ;Give message and continue
+        pop dx
+        pop cx
+        pop bx
+        pop ax
+        ret
+
+mdrv_savebuf:
+        cmp word cs:mdrvpointer,0200
+        if a mov byte cs:mdrvheader,0
+        mov word cs:mdrvpointer,0
+        mov byte cs:mdrvgap,0
+        cmp byte cs:mdrvwritprot,0
+        jz ret
+        cmp byte cs:datawritten,0ff
+        jnz ret
+        mov byte cs:datawritten,0
+        push ax
+        push bx
+        push cx
+        push dx
+        push es
+        push si
+        call mdrv_getbuffer
+        jc mdrv_fb_carterr
+        mov cx,15
+        cmp byte cs:mdrvheader,0
+        jnz mdrv_sb_header
+        add bx,cx
+        mov cx,528
+mdrv_sb_header:
+        mov si,offset mdrvbuffer+12
+        shr cx,1
+        pushf
+mdrv_sb_transfer:
+        mov ax,cs:[si]
+        mov es:[bx],ax
+        inc si
+        inc si
+        inc bx
+        inc bx
+        loop mdrv_sb_transfer
+        mov byte cs:mdrvbufchanged,0ff
+        popf
+        jnc mdrv_fb_carterr
+        mov al,cs:[si]
+        mov es:[bx],al
+mdrv_fb_carterr:
+        pop si
+        pop es
+        pop dx
+        pop cx
+        pop bx
+        pop ax
+        ret
+
+
+mdrv_getbuffer:                 ;Loads 1/8th of cartridge if neccessary, and
+        mov bx,cs:mdrvhandle    ;returns es:bx pointer in mdrv buffer
+        test bx,bx
+        jz mdrv_clearbuffer     ;c=1: error
+        cmp bx,cs:mdrvbufhandle
+        jnz mdrv_gb_loadbuf
+mdrv_gb_frommemory:
+        mov al,cs:mdrvblock
+        sub al,cs:mdrvbufblock
+        jc mdrv_gb_loadbuf
+        cmp al,31
+        ja mdrv_gb_loadbuf
+        mov ah,136              ;0220/4
+        mov bl,al
+        xor bh,bh
+        mul ah
+        add ax,ax
+        add ax,ax
+        sub ax,bx               ;*021F
+        mov bx,ax
+        mov es,cs:mdrvseg
+        ret
+mdrv_gb_loadbuf:
+        push bx
+        call mdrv_clearbuffer
+        pop bx
+mdrv_gb_nochange:
+        mov cs:mdrvbufhandle,bx
+        mov al,cs:mdrvblock
+        and al,255-31
+        mov cs:mdrvbufblock,al
+        call mdrv_gb_lseek
+        mov ah,03f
+        mov cx,17376            ;32*021f. The final block will consist of only
+        xor dx,dx               ; 30 header/data blocks, but that's no problem.
+        push ds
+        mov ds,cs:mdrvseg
+        int 021
+        pop ds
+        jmp mdrv_gb_frommemory
+
+mdrv_gb_lseek:
+        mov al,cs:mdrvbufblock
+        xor ah,ah
+        mov dx,021F
+        mul dx
+        mov cx,dx
+        mov dx,ax
+        mov ax,04200
+        int 021
+        ret
+
+mdrv_clearbuffer:
+        mov bx,cs:mdrvbufhandle
+        test bx,bx
+        jz mdrv_buffererr
+        cmp byte cs:mdrvbufchanged,0
+        jz mdrv_buffererr
+        call mdrv_gb_lseek
+        mov ah,040
+        push ds
+        mov ds,cs:mdrvseg
+        xor dx,dx
+        mov cx,17376                    ;32 * 021F
+        cmp byte cs:mdrvbufblock,224    ;final block
+        if z mov cx,16290               ;30 * 021F
+        int 021
+        pop ds
+        mov byte cs:mdrvbufchanged,0
+        mov word cs:mdrvbufhandle,0
+mdrv_buffererr:
+        stc
+        ret
+
+
+
+mdrv_writegap:                  ;called by the timer, to emulate OUT 239,0
+        cmp byte cs:erase,0
+        jnz ret
+        mov byte cs:[offset mdrvbuffer+14],0ff   ;Always-wrong checksum
+        mov word cs:mdrvpointer,15
+        mov byte cs:datawritten,0ff
+        mov byte cs:dataread,0
+        push word cs:readwrt
+        mov byte cs:readwrt,0
+        call mdrv_flushbuf
+        mov byte cs:datawritten,0ff
+        mov byte cs:mdrvpointer,15
+        call mdrv_flushbuf
+        pop word cs:readwrt
+        ret
+
+mdrv_otir:
+        test word cs:mdrvhandle
+        jnz mdrv_otirok
+        mov bl,0fd
+        jmp far call_c_immediately
+mdrv_otirok:
+        cmp cs:byte datawritten,0
+        if z mov word cs:mdrvpointer,0
+        mov byte cs:mdrv_counter,0
+        mov byte cs:mdrvgap,0
+        push ax
+        push bx
+        push cx
+        push dx
+        cmp byte cs:readwrt,0
+        jnz mdrv_otir_return
+        cmp byte cs:erase,0
+        jnz mdrv_otir_return
+        pop bx                  ;HL
+        pop cx                  ;BC
+        push cx
+        push bx
+        push si
+        mov si,cs:mdrvpointer
+mdrv_otir1:
+        mov al,[bx]
+        mov cs:[si+offset mdrvbuffer],al
+        inc bx
+        cmp si,021f
+        adc si,0
+        dec ch
+        jnz mdrv_otir1
+        mov cs:mdrvpointer,si
+        pop si
+        mov byte cs:datawritten,0ff
+mdrv_otir_return:
+        pop dx
+        pop cx
+        mov bl,ch
+        dec bl
+        xor bh,bh
+        add dx,bx               ;update HL
+        inc dx
+        mov ch,1
+        pop bx
+        pop ax
+        sahf
+        dec ch                  ;update B and flags
+        lahf
+        jmp far emulate
+
+mdrv_out:
+        test word cs:mdrvhandle
+        if z jmp in_0_crash
+        cmp cs:byte datawritten,0
+        if z mov word cs:mdrvpointer,0
+        mov byte cs:mdrv_counter,0
+        mov byte cs:mdrvgap,0
+        cmp byte cs:readwrt,0
+        jnz mdrv_out_return
+        cmp byte cs:erase,0
+        jnz mdrv_out_return
+        mov bx,cs:mdrvpointer
+        mov cs:[bx+offset mdrvbuffer],ah
+        cmp bx,021f
+        adc bx,0
+        mov cs:mdrvpointer,bx
+        mov byte cs:datawritten,0ff
+mdrv_out_return:
+        ret
+
+mdrv_inir:
+        test word cs:mdrvhandle
+        jnz mdrv_inirok
+        mov bl,0fd                              ;in 0 crash
+        jmp far call_c_immediately
+mdrv_inirok:
+        push ax
+        mov bx,dx
+        cmp word cs:mdrvpointer,0
+        je mdrv_inir_rubbish
+        cmp byte cs:mdrvgap,0
+        jnz mdrv_inir_rubbish
+        cmp byte cs:readwrt,0ff
+        jnz mdrv_inir_rubbish
+        cmp byte cs:erase,0ff
+        jnz mdrv_inir_rubbish
+        push si
+        mov si,cs:mdrvpointer
+mdrv_inir1:
+        mov al,cs:[si+offset mdrvbuffer-1]      ;compensate for the flag-'1'
+        cmp bx,04000
+        if ae mov [bx],al
+        inc bx
+        inc dx
+        cmp si,021f
+        adc si,0
+        dec ch
+        jnz mdrv_inir1
+        mov cs:mdrvpointer,si
+        pop si
+        mov byte cs:dataread,0ff
+        mov al,0f
+        xor cs:old_if1ctrl,al           ;Force call to mdrv_flushbuf upon
+        jmp mdrv_inir_return            ;the OUT to EF.
+mdrv_inir_rubbish:
+        cmp bx,04000
+        if ae mov b[bx],0
+        inc bx
+        inc dx
+        dec ch
+        jnz mdrv_inir_rubbish
+mdrv_inir_return:
+        pop ax
+        sahf
+        mov ch,1
+        dec ch
+        lahf
+        jmp far emulate
+
+mdrv_in:
+        test word cs:mdrvhandle
+        if z jmp in_0_crash
+        cmp word cs:mdrvpointer,0
+        je mdrv_in_rubbish
+        cmp byte cs:mdrvgap,0
+        jnz mdrv_in_rubbish
+        cmp byte cs:readwrt,0ff
+        jnz mdrv_in_rubbish
+        cmp byte cs:erase,0ff
+        jnz mdrv_in_rubbish
+        mov bx,cs:mdrvpointer
+        mov ah,cs:[bx+offset mdrvbuffer-1]
+        cmp bx,021f
+        adc bx,0
+        mov cs:mdrvpointer,bx
+        mov byte cs:dataread,0ff
+        mov bl,0f
+        xor byte cs:old_if1ctrl,bl
+        ret
+mdrv_in_rubbish:
+        mov byte cs:dataread,0ff
+        xor ah,ah
+        ret
+
+
+mdrv_closeall:
+        call mdrv_clearbuffer
+        mov cx,8
+        mov bx,offset mhandles
+mdrv_c_loop:
+        mov ax,cs:[bx]
+        inc bx
+        inc bx
+        test ax,ax
+        jz mdrv_c_next
+        push bx
+        mov bx,ax
+        mov ah,03e
+        int 021
+        pop bx
+mdrv_c_next:
+        loop mdrv_c_loop
+        ret
+
+
+
+
+;
+;These routines emulate INs
+;
+not_keyboard_far:
+        cmp bl,0fd
+        jz in_128
+        test bl,255-31
+        jz in_kempston
+not_kempston_after_all:
+        NOT BL
+        AND BL,000011000XB
+        AND BL,ES:B[IF1_ON]
+        jnz IF1_IN_POORT
+        TEST BYTE ES:RFSHFLG
+        jz in_finished           ;GEEF 0FF ALS IN REFRESH
+        MOV AH,ES:INTEL
+        INC AH
+        AND AH,3
+        MOV ES:INTEL,AH
+        MOV AH,0FF
+        jnz in_finished
+        ADD ES:ATRSCR,27896
+        if c jmp IN_SCRN
+        MOV BX,ES:INTEL3
+        ADD BX,29
+        CMP BX,23296
+        IF AE SUB BX,768
+        MOV AH,[BX]
+        MOV ES:INTEL3,BX
+in_finished:
+        MOV BH,AH
+        RETf
+
+in_kempston:
+        test bl,24
+        jz not_kempston_after_all
+        MOV AH,ES:B[KEMPSTON_STATE]     ;HAAL STATUS KEMPSTON JOYSTICK OP.
+        MOV BH,AH
+        RETf
+
+IF1_IN_POORT:
+        mov ah,al
+        in al,021
+        push ax
+        and al,0fe              ;voor evt. aanroepen van DOS
+        out 021,al
+        CALL IN_IF1             ;see above
+        pop bx
+        mov al,bl
+        out 021,al
+        mov al,bh
+        MOV BH,AH
+        RETf
+
+
+
+in_128: cmp bh,0ff
+        mov bh,0ff
+        jnz in_128_retf
+        mov bl,cs:lastfffd
+        cmp bl,15
+        ja in_128_retf
+        cmp bl,14
+        jne in_128_normal
+;        CMP word CS:RS_IN,2             ;from here on the code is copied
+;        JAE READ_BIT128                 ;almost literally from in_if1 above
+;        MOV word CS:RS_IN,0
+;        CMP BYTE CS:CTS128,0    ;CLEAR TO SEND?
+;        JZ READ_BIT128          ;NEE, GEEF NUL TERUG
+;        CALL RS_READ_READY      ;STAAT DATA KLAAR?
+;        JC READ_BIT128          ;C=NEE
+;        PUSH AX
+;        CALL READ_SAVEREG
+;        MOV AH,0f0              ;three START BITS EN 1 MARKER BIT
+;        NOT AL
+;        ROL AX,1
+;        ROL AX,1
+;        ROL AX,1
+;        MOV CS:RS_IN,AX
+;        POP AX
+READ_BIT128:
+        and bh,03f
+        cmp byte cs:dtr,0ff
+        if nz or bh,64
+;        shl bh,1
+;        RCR WORD CS:RS_IN,1
+;        cmc
+;        RCR bH,1                ;bit 7=data (not inverted), bit 6=dtr
+        retf
+in_128_normal:
+        mov bh,0
+        mov bh,cs:[offset sstate+bx]
+in_128_retf:
+        retf
+
+IN_SCRN:
+        MOV BX,ES:INTEL2
+        ADD BX,31+7*256
+        CMP BX,22528
+        IF AE SUB BX,6144
+        MOV AH,[BX]
+        MOV ES:INTEL2,BX
+        MOV BH,AH
+        RETf
+
+
+
+
+
+;
+;Now the routines that emulate OUTs follow:
+;
+no_speaker_far:
+        cmp bl,0fd
+        if z jmp out_128
+        TEST BL,011100000XB
+        jnz NO_31
+        TEST ES:B[IN31TAB+2],0FF        ;is er een out 31,5 geweest?
+        jnz NO_31
+        cmp byte es:rommod,2
+        jnz end_out
+        MOV BL,AH
+        AND BX,01111XB
+        SHR BX,1
+        SBB AH,AH
+        CMP ES:[BX+IN31TAB],AH
+        MOV ES:[BX+IN31TAB],AH
+        jz end_out
+        push ax
+        cmp bl,6
+        jz samram_beep
+        cmp bl,5
+        jz switch_ram
+        TEST ES:BYTE IF1FLG,0FF         ;is the if1 rom active?
+        JnZ end_out_popax               ;if so, don't switch any roms
+        cmp bl,1
+        jz enable_normal
+        cmp bl,3
+        jz enable_shadow
+end_out_popax:
+        pop ax
+END_OUT:
+        retf
+
+samram_beep:
+        MOV AL,1                ;ZET BIEPER AAN/UIT
+        OUT 042,AL              ;pitch
+        OUT 042,AL
+        IN AL,061
+        AND AX,0000001111111100XB
+SILENT2 EQU $-1
+        OR AL,AH
+        OUT 061,AL
+        pop ax
+        retf
+
+ENABLE_NORMAL:
+        and ah,ah               ;nonzero: page normal rom
+        mov ah,es:[in31tab+3]   ;which samram rom should be paged?
+        jz enable_shadow_2
+        mov ax,0
+        call swap_mem
+        pop ax
+        retf
+
+enable_shadow:
+        TEST ES:B[IN31TAB+1],0FF
+        JNZ end_out_popax            ;exit if standard rom is on
+enable_shadow_2:
+        and ah,ah
+        mov ax,2
+        if nz inc al            ;ordinary samrom or 2nd samrom
+        call swap_mem
+        pop ax
+        retf
+
+NO_31:
+        NOT BL
+        TEST BL,011000XB
+        if z jmp end_out
+        push ax
+        in al,021
+        push ax
+        and al,0fe
+        out 021,al
+        CALL OUT_IF1
+        pop ax
+        out 021,al
+        pop ax
+        retf
+
+
+PAGEIN_IF1_ROM:
+        TEST BYTE ES:IF1_ON
+        JZ pir_retf
+        mov byte es:if1flg,0ff
+        push ax
+        mov ax,1
+        call swap_mem
+        pop ax
+pir_retf:
+        RETf
+
+
+SWITCH_RAM:
+        test ah,ah              ;which bank?
+        mov ax,0204
+        if nz mov al,6
+        push ax
+        call swap_mem
+        pop ax
+        add ax,0101             ;2nd 16K block
+        call swap_mem
+        pop ax
+        retf
+
+
+out_128:
+        cmp byte cs:rommod,3
+        jb not_in_128mode
+        cmp bh,0bf
+        jz out_128_soundchip
+        cmp bh,07f
+        if z jmp out_128_banksw
+        cmp bh,0ff
+        jz out_128_soundreg
+not_in_128mode:
+        retf
+
+out_128_soundreg:
+        mov cs:lastfffd,ah
+        MOV WORD CS:RS_OUT,0
+out_128_return:
+        retf
+
+out_128_soundchip:
+        mov bl,cs:lastfffd
+        cmp bl,15
+        ja out_128_return
+        mov bh,0
+        mov cs:b[offset sstate+bx],ah
+        cmp bl,14
+        if e jmp out_128_rs232
+        cmp byte cs:silence,0
+        jnz out_128_return
+        cmp byte cs:intsnd,0ff
+        if z jmp out_128_internal
+        test byte cs:adlib,0ff
+        jz out_128_return
+        cmp bl,6
+        jb out_128_s_freq
+        je out_128_noise
+        cmp bl,7
+        if z jmp out_128_s_control
+        cmp bl,11
+        if b jmp out_128_amplitude
+        cmp bl,13
+        if e jmp out_128_envcontrol
+        if b jmp out_128_envperiod
+        retf
+
+out_128_noise:
+        cmp byte cs:cmschips,0ff
+        jnz out_128_nn
+        push ax
+        push cx
+        mov cl,3
+        shl ah,cl
+        if z mov ah,8
+out_128_schuif:
+        shl ah,1
+        jc out_128_klaar
+        inc cl
+        jmp out_128_schuif
+out_128_klaar:
+        inc cl
+        cmp cl,8
+        jnz out_128_n_ok
+        mov cl,7
+        xor ah,ah
+out_128_n_ok:
+        not ah
+        mov al,8
+        call cms_write          ;tone
+        mov ah,cl
+        mov al,010              ;octave
+        call cms_write
+        pop cx
+        pop ax
+out_128_nn:
+        retf
+
+;'128 sound chip: Frequency = 110830 / registervalue (from 1 to 4095) Hz
+;Adlib sound chip: Frequency = 50000 * 2^-20 * reg.value (0-1023) * 2^octave (0-7)
+;So Adlib reg = 2324273 / '128 reg (hex 237731)
+out_128_s_freq:
+        push ax
+        push dx
+        and bl,6
+        push bx
+        mov bx,cs:b[offset sstate+bx]
+        and bx,4095                     ;keep only 12 bits
+        cmp bx,17
+        if be mov bx,18
+        cmp bx,35
+        jbe out_128_highfreq
+        mov ax,07731
+        mov dx,023
+        div bx                  ;AX now contains the F number for octave 0
+        shr bx,1
+        cmp bx,dx
+        adc ax,0                ;round to nearest value
+        mov dl,0
+out_128_sf_three:
+        test ah,0f0             ;Is there a one in position 12 or higher?
+        je out_128_sf_one
+        add dl,3*4              ;octave * 4
+        shr ax,1
+        shr ax,1
+        shr ax,1
+        jmp out_128_sf_three
+out_128_sf_one:
+        test ah,0fc             ;Is there a one in position 10 or higher?
+        je out_128_sf_shifted
+        add dl,4
+        shr ax,1
+        jmp out_128_sf_one
+out_128_sf_shifted:
+        pop bx                  ;bl=channel number * 2
+        push ax                 ;save F number
+        mov ah,al               ;transfer data to ah
+        shr bl,1
+        mov al,bl
+        add al,0a0              ;add offset for register
+        call adlib_writep
+        pop ax                  ;ah contains the upper two bits of F number
+        or ah,dl                ;include the octave number
+        mov al,bl
+        add al,0b0              ;add offset
+        or ah,32                ;voice channel
+        call adlib_write
+        pop dx
+        pop ax
+        retf
+out_128_sf_out:
+        pop bx
+        pop dx
+        pop ax
+        retf
+out_128_highfreq:
+        mov ax,046ee            ;2324273/128
+        xor dx,dx
+        div bx
+        mov dl,7*4              ;octave 7
+        jmp out_128_sf_shifted
+
+
+
+
+out_128_s_control:
+        push ax
+        push di
+        xor di,di
+        mov bl,ah
+        mov bh,ah
+        xor bh,cs:b[offset s_oldctrl]
+        mov cs:b[offset s_oldctrl],bl
+out_128_c_loop:
+        mov ax,di
+        add al,043
+        shr bh,1
+        jnc out_128_c_nochange
+        shr bl,1
+        jnc out_128_c_active
+        mov ah,63
+        call adlib_writep               ;switch off channel (amplitude 0)
+        jmp short out_128_c_nochange_1
+out_128_c_active:
+        mov ah,cs:b[offset sstate+8+di]
+        test ah,16
+        if nz mov ah,cs:b[offset envcur]
+        and ah,15
+        shl ah,1
+        shl ah,1
+        xor ah,63
+        call adlib_writep               ;switch on channel
+        shl bl,1
+out_128_c_nochange:
+        shr bl,1
+out_128_c_nochange_1:
+        inc di
+        cmp di,3
+        jb out_128_c_loop
+        test bh,7
+        je out_128_c_nonoise
+        call upd_noise
+out_128_c_nonoise:
+        pop di
+        pop ax
+        retf
+
+out_128_rs232:
+        push ax
+        shr ah,1
+        shr ah,1
+        shr ah,1
+        sbb al,al
+        mov cs:cts128,al
+        mov word cs:rs_in,0
+        SHR AH,1
+        cmc
+        RCR WORD CS:RS_OUT,1
+        TEST WORD CS:RS_OUT,080
+        JZ out_128_r
+        MOV AL,CS:B[OFFSET RS_OUT+1]
+        CALL WRITE_SAVEREG
+        MOV WORD CS:RS_OUT,0
+out_128_r:
+        pop ax
+        RETf
+
+
+upd_noise:                              ;destroys ax and bx
+        cmp byte cs:adlib,0ff
+        jnz ret
+        push cx
+        xor ah,ah
+        mov cl,cs:b[offset sstate+7]
+        or cl,0ff-56
+        not cl
+        shr cl,1
+        shr cl,1
+        shr cl,1
+        mov bx,offset sstate+8          ;amp regs
+upd_n_1:
+        shr cl,1
+        jnc upd_n_2
+        mov al,cs:b[bx]
+        test al,16
+        if nz mov al,cs:envcur
+        and al,15
+        cmp al,ah
+        if a mov ah,al
+upd_n_2:
+        inc bx
+        test cl
+        jnz upd_n_1
+        test byte cs:cmschips
+        jne upd_noise_cms
+;keer drie
+        mov al,ah
+        add ah,ah
+        add ah,al
+        xor ah,63
+        mov al,054                      ;operator 17, reg. 14h, snaredrum volume
+        call adlib_write
+        pop cx
+        ret
+upd_noise_cms:
+        mov al,192
+        mul ah
+        mov al,ah
+        add al,al
+        add al,al
+        add al,al
+        add al,al
+        or ah,al
+        xor al,al
+        call cms_write                  ;amplitude of noise
+        pop cx
+        ret
+
+
+
+out_128_amplitude:                      ;registers 8-10
+        push bx
+        cmp bl,10
+        sbb bl,6                        ;8,9,10 -> 1,2,4
+        test cs:b[offset sstate+7],bl
+        pop bx
+        push ax
+        jnz out_128_amp_off
+        add bl,043-8
+        test ah,16
+        jz out_128_amp_normal
+        mov ah,cs:envcur
+out_128_amp_normal:
+        and ah,15
+        jz out_128_off
+        xor ah,15
+        shl ah,1
+        shl ah,1
+out_128_off2:
+        mov al,bl
+        call adlib_writep
+out_128_amp_off:
+        call upd_noise
+        pop ax
+        retf
+out_128_off:
+        mov ah,03f
+        jmp out_128_off2
+
+out_128_envcontrol:
+        push ax
+        test ah,4
+        mov al,0
+        if z mov al,15
+        mov cs:b[envcur],al
+        and al,2
+        xor al,2
+        dec al
+        mov cs:b[envadd],al
+        test ah,8
+        jz out_128_notcont
+        mov al,ah
+        test ah,2
+        if nz not al
+        test ah,4
+        if nz not al
+        and al,1
+        dec al
+        and al,0f
+        mov cs:b[env2nd],al
+        and al,2
+        xor al,2
+        dec al
+        test ah,1
+        if nz xor al,al
+        mov cs:b[env2add],al
+        and ah,0ff-4
+        cmp ah,10
+        mov al,0
+        if z dec al
+        mov cs:b[envtog],al
+        jmp short out_128_env_upd
+out_128_notcont:
+        mov cs:b[env2nd],0
+        mov cs:b[env2add],0
+        mov cs:b[envtog],0
+out_128_env_upd:
+        mov word cs:envnumlo,0
+        xor ax,ax
+        push dx
+        call upd_chan2
+        pop dx
+        pop ax
+        retf
+
+;Envelope timer is being counted down with a freq. of 111760 Hz
+;on the '128. Each tick, the amplitude is changed by 1/16th of the total amount.
+;The emulator's internal timer operates at 200 Hz
+out_128_envperiod:
+        push ax
+        push dx
+        mov bx,cs:w[offset sstate+11]
+        cmp bx,37
+        jb out_128_ep_ret
+        cmp bx,559
+        jb out_128_ep_fast
+        mov ax,0cccd                    ;dxax=36621517=111760*65536/200
+        mov dx,022e
+        div bx
+        mov cs:envaddlo,ax
+        mov word cs:envaddhi,0
+out_128_ep_ret:
+        pop dx
+        pop ax
+some_retf:
+        retf
+out_128_ep_fast:
+        mov ax,0eccd                    ;dxax=2288845, 1/16th of above
+        mov dx,022
+        div bx
+        mov bx,16
+        mul bx
+        mov cs:envaddlo,ax
+        mov cs:envaddhi,dx
+        jmp out_128_ep_ret
+
+
+out_128_banksw:                         ;is also called from _reset_page5
+        cmp byte cs:rommod,3
+        jb some_retf                    ;return if emulator not in 128 mode
+        push ax
+        mov al,cs:hstate
+        test al,32
+        jnz out_128_popax               ;If bit 5=1, ignore output to this port
+        mov cs:hstate,ah
+        xor al,ah
+        test al,7
+        jz out_128_nobanksw
+        push ax
+        mov al,ah
+        and al,7
+        mov ah,3                        ;swap in area c000-ffff
+        add al,ah                       ;internal 3-10 is ram pages 0-7
+        call swap_mem
+        pop ax
+out_128_nobanksw:
+        test al,16
+        jz out_128_popax
+        test byte cs:if1flg,0ff         ;is if1 rom switched on?
+        jnz out_128_popax
+        mov al,ah
+        and ax,16
+        xor al,16                       ;ordinary specrom is page 0
+        shr al,1
+        shr al,1
+        shr al,1                        ;swap in rom area, page 0 or 2.
+        call swap_mem
+out_128_popax:
+        pop ax
+        retf
+
+
+
+;
+;this routine is called from the timer. AL holds # steps
+;
+update_channels:
+        mov ah,cs:envadd
+        test ah
+upd_chan2:
+        jz upd_ampok            ;hold
+        if s neg al
+        add al,cs:envcur        ;add to amplitude
+        mov cs:envcur,al
+        test al,0f0
+        jz upd_ampok            ;no overflow
+        if s not al
+        and al,15               ;leftover
+        inc al
+        mov dx,word cs:[offset env2nd]        ;and env2add
+        mov cs:w[offset envcur],dx            ;copy 2nd period info
+        test byte cs:envtog
+        jz update_channels
+        neg byte cs:env2add
+        xor byte cs:env2nd,0f
+        jmp update_channels
+upd_ampok:
+        cmp byte cs:adlib,0ff
+        jnz upd_int
+        mov ah,cs:envcur
+        and ah,15
+        shl ah,1
+        shl ah,1
+        xor ah,63
+        test byte cs:[offset sstate+8],16
+        jz upd_noe_1
+        test byte cs:[offset sstate+7],1        ;is channel a on?
+        jnz upd_noe_1
+        mov al,043
+        push ax
+        call adlib_writep
+        pop ax
+upd_noe_1:
+        test byte cs:[offset sstate+9],16
+        jz upd_noe_2
+        test byte cs:[offset sstate+7],2        ;is channel b on?
+        jnz upd_noe_2
+        mov al,044
+        push ax
+        call adlib_writep
+        pop ax
+upd_noe_2:
+        push ax
+        test byte cs:[offset sstate+10],16
+        jz upd_noe_3
+        test byte cs:[offset sstate+7],4        ;is channel c on?
+        jnz upd_noe_3
+        mov al,045
+        call adlib_writep
+upd_noe_3:
+        push bx
+        call upd_noise
+        pop bx
+        pop ax
+        ret
+upd_int:
+        push cs
+        call update_internal
+        ret
+
+
+out_128_internal:
+        cmp bl,6
+        jb out_128_s_freq_int
+        je out_128_i_retf
+        cmp bl,7
+        jz update_internal
+        cmp bl,11
+        jb update_internal
+        cmp bl,13
+        if e jmp out_128_envcontrol
+        if b jmp out_128_envperiod
+out_128_i_retf:
+        retf
+out_128_s_freq_int:
+update_internal:
+        push ax
+        push bx
+        push cx
+        push dx
+        push si
+        mov si,-1
+        mov bx,0
+        mov ah,cs:b[offset sstate+7]
+        mov cx,20
+ui_1:
+        mov al,cs:b[offset sstate+8+bx]
+        and al,31
+        test al,16
+        if ne mov al,cs:envcur
+        shl al,1
+        shr ah,1
+        jc ui_turnedoff
+        shl bx,1
+        mov dx,cs:w[offset sstate+bx]
+        shr bx,1
+        cmp dx,034f
+        if b inc al
+        cmp dx,0240
+        if b inc al
+        cmp dx,01a8
+        if b inc al
+        cmp dx,0100
+        if b inc al
+        cmp dx,0d4
+        if b inc al
+        cmp dx,020
+        if b dec al
+        cmp dx,0f
+        if b dec al
+        cmp dx,si
+        if b add al,3
+        cmp al,cl
+        jbe ui_turnedoff
+ui_turnedon:
+        mov cl,al
+        mov si,dx
+ui_turnedoff:
+        inc bx
+        cmp bx,3
+        jb ui_1
+        cmp si,-1
+        jz beep_off
+;Freq '128 chip = 110830 / regvalue (1..4095)
+;Freq pc chip = 1192755 / regvalue (1..65535)
+;256 * 1192755 / 110830 =2755
+        mov ax,si
+        mov dx,2755
+        mul dx
+        mov al,ah
+        out 042,al
+        mov al,dl
+        out 042,al
+        in al,061
+        or al,3
+        jmp ui_finished
+beep_off:
+        in al,061
+        and al,011111100xb
+        mov ah,byte cs:newbor
+        and ah,010
+        add ah,-16
+        sbb ah,ah
+        and ah,2
+        or al,ah
+ui_finished:
+        out 061,al
+        pop si
+        pop dx
+        pop cx
+        pop bx
+        pop ax
+        retf
+
+
+
+
+
+
+
+
+
+allocate_memory:
+        mov ah,048
+        mov bx,512
+        int 021
+        sub ax,1024
+        mov cs:vidbufseg,ax     ;vidbufseg:16384 points to 8192 byte buffer
+        mov ah,048
+        mov bx,256
+        int 021
+        mov cs:w[offset scrnbuffer],0
+        mov cs:w[offset scrnbuffer+2],ax
+        mov ah,048
+        mov bx,1090             ;>32*21f
+        int 021
+        mov cs:mdrvseg,ax
+        cmp byte cs:expmem,0ff
+        if nz jmp no_exp_mem2
+        xor ax,ax
+        mov es,ax
+        mov ax,es:[067*4+2]
+        mov es,ax
+        mov ax,es:[0a]
+        cmp ax,'E'+256*'M'
+        jnz no_exp_mem
+        xor ax,es:[0c]
+        xor ax,es:[0e]
+        xor ax,es:[010]
+        cmp ax,07d08
+        jnz no_exp_mem
+        mov ah,041
+        int 067
+        test ah,ah
+        jnz no_exp_mem
+        mov cs:specseg,bx
+        mov cs:romseg,bx
+        mov ah,043              ;allocate
+        mov bx,11               ;11 16K pages
+        int 067
+        test ah,ah
+        jnz no_exp_mem
+        mov cs:emshandle,dx
+        push dx
+        mov dx,emsmes
+        mov ah,9
+        push cs
+        pop ds
+        int 021
+        pop dx
+        mov ax,04400            ;map memory
+ems_loop:
+        push ax
+        xor bx,bx               ;logical page 0
+        int 067
+        test ah,ah
+        jnz ems_err
+        pop ax
+        inc al
+        cmp al,4
+        jb ems_loop
+        mov bx,0400             ;16K samram-speedup-buffer
+        mov ah,048
+        int 021                 ;(see instructions ED F*)
+        jnc enough_mem
+        mov ah,045
+        int 067
+        jmp not_enough
+enough_mem:
+        mov cs:samseg,ax
+        mov byte cs:sambank,0
+        ret
+no_exp_mem:
+        push cs
+        pop ds
+        mov ah,9
+        mov dx,noemsmes
+        int 021
+no_exp_mem2:
+        mov bx,03c00            ;64K Z80 mem, 48K roms, 128K ram banks (128)
+        mov ah,048
+        int 021
+        if c jmp not_enough     ;in z80.8
+        mov cs:specseg,ax
+        add ax,01000
+        mov cs:romseg,ax
+        ret
+ems_err:
+        mov ah,045
+        int 067                 ;deallocate handle
+        mov dx,offset emserr
+        jmp enderr
+
+
+restore_ems:
+        mov dx,cs:emshandle
+        test dx,dx
+        jz ret
+        xor bx,bx
+restore_ems_1:
+        push bx
+        mov al,bl
+        mov bl,cs:b[offset ramstate+bx]
+        mov ah,044
+        int 067
+        pop bx
+        inc bx
+        cmp bx,4
+        jb restore_ems_1
+        ret
+
+;
+;The following subroutine actually pages the various roms, and swaps
+;the ram pages. AL (0-11) specifies the page to swap in, AH (0-3) specifies
+;the Z80 bank the page is to be swapped into. It destroys only the AX register.
+;
+swap_mem:
+        push bx
+        mov bl,ah
+        xor bh,bh
+        cmp cs:b[offset ramstate+bx],al
+        if z jmp swap_mem_same
+        cmp al,11
+        if ae jmp swap_mem_same
+        push dx
+        mov dx,cs:emshandle
+        test dx,dx
+        jz swap_noems
+        mov cs:b[offset ramstate+bx],al
+        mov bl,al
+        xor bh,bh
+        mov al,ah
+        mov ah,044
+        int 067
+        pop dx
+        pop bx
+        ret
+swap_noems:
+        pop dx
+        push si
+        push di
+        push cx
+        push es
+        push ds
+        mov ch,8192/256         ;16 K bytes
+        cmp ax,1                ;swap in if1 rom?
+        jnz not_if1swap
+        mov ch,4096/256
+        mov cl,cs:b[offset ramstate]    ;fetch previously active rom
+        test byte cs:if1sw      ;0ff means: switch entire 16K of if1 rom
+        if nz mov cx,8192+255
+        mov cs:actrom2,cl       ;0ff if entire 16K switched, otherwise other rom
+        jmp not_rompage
+not_if1swap:
+        test ah                 ;Pageing a rom?
+        jnz not_rompage
+        cmp al,cs:actrom2       ;Is 2nd part of rom OK already?
+        if z mov ch,4096/256    ;If so, only switch back first 8K of it
+        mov cs:actrom2,al
+not_rompage:
+        xor cl,cl
+        ror ah,1
+        ror ah,1
+        mov di,ax
+        and di,0c000
+        cmp ah,040              ;the ram banks must be swapped, not just
+        jb just_pagein          ; paged.
+        push ax
+        mov al,cs:b[ramstate+bx]       ;Get old pagenumber, save new
+        cmp al,2                ;Do not save changes in ROM (r.s.=0,1)
+        js just_pagein_popax    ;Also, ignore data in inactive pages (r.s.=ff)
+        mov bh,al               ;save old pagenumber in bh, is made zero below
+        add al,al
+        add al,al
+        mov ah,0
+        xchg al,ah
+        add ax,cs:romseg
+        mov es,ax
+        xor si,si
+        push di
+        push cx
+        xchg si,di              ;es:di = es:00 -> buffer, specseg:si -> z80 bank
+        mov ds,cs:specseg
+        cld
+        push si
+        rep movsw
+        pop si
+        test bl,1               ;This is not fully symmetrical, but well, it works.
+        je swm_nodouble         ;It cannot be perfect in this mem. mode anyway, so I don't
+        mov di,si               ; worry about this imperfection
+        xor di,08000
+        mov al,cs:b[ramstate+1]         ;was old page active twice?
+        cmp al,cs:b[ramstate+3]
+        je swm_double
+        cmp bh,cs:b[ramstate+2]         ;could also have been active in bank 2
+        jne swm_nodouble
+        mov di,08000                    ;Note: it's impossible to have 3 banks
+swm_double:                             ;paged at the same time
+        cmp bh,2
+        js swm_nodouble                 ;exclude the cases where the old page
+        push ds                         ;was 0ff (inactive) or a ROM (0, see save)
+        pop es
+        mov cx,02000
+        rep movsw               ;copy contents to other active bank too
+swm_nodouble:
+        pop cx
+        pop di
+        xor bh,bh
+just_pagein_popax:
+        pop ax
+just_pagein:
+        mov cs:b[ramstate+bx],al        ;By the way, 'memstate' would have been
+        mov es,cs:specseg               ; a better name...
+        mov bh,al
+        add al,al
+        add al,al
+        mov ah,0
+        xchg al,ah
+        add ax,cs:romseg
+        mov ds,ax
+        cld
+        test bl,1
+        je swm_nodouble2
+        mov si,di
+        xor si,08000
+        mov al,cs:b[ramstate+1]
+        cmp al,cs:b[ramstate+3]
+        je swm_double2
+        cmp bh,cs:b[ramstate+2]
+        jne swm_nodouble2
+        mov si,08000
+swm_double2:                            ;page is also active elsewhere
+        cmp bh,2
+        js swm_nodouble2
+        push es
+        pop ds
+        rep movsw                       ;copy the page from the other active bank
+        jmp short swm_exit
+swm_nodouble2:
+        xor si,si
+        rep movsw               ;get the page from the internal banks
+swm_exit:
+        pop ds
+        pop es
+        pop cx
+        pop di
+        pop si
+swap_mem_same:
+        pop bx
+        ret
+
+
+swap_mem_far:
+        call swap_mem
+        retf
+
+
+;
+;The following important subroutine loads a .Z80 or a .SNA file from disk.
+;Input is AX, which is zero is the file to load is a .Z80 file, or 1 if
+;it is a .SNA file, and BX which holds the handle of the file. The subroutine
+;loads and unpacks the file, and after that it loads the romfile again if
+;necessary. The spectrum segment is updated (right rom is put into place,
+;ram banks are loaded). If AX is nonzero upon completion, there was (probably)
+;an error in the .Z80 file format. (it could also have been a disk error)
+;
+load_z80_file:
+        push ds
+        push ax
+        push bx
+        call mdrv_clearbuffer           ;the 16384 byte mdrv buffer is used
+        push cs                         ; in load_version2_z80file
+        pop ds
+        pop bx
+        mov ax,0108                     ;standard page layout for spec and samram
+        call swap_mem
+        mov ax,0204
+        call swap_mem
+        mov ax,0305
+        call swap_mem
+        pop ax
+        mov dx,offset rfa
+        test ax,ax
+        if nz jmp load_sna_file
+        mov cx,30
+        mov ah,03f
+        int 021
+        if c jmp lzf_error_close
+        cmp ax,30
+        if nz jmp lzf_error_close
+        mov al,cs:rr_bit7
+        cmp al,255
+        if z mov al,1
+        MOV AH,AL
+        AND AH,1
+        NEG AH
+        MOV cs:RR_BIT7,AH
+        SHR AL,1
+        MOV cs:NEWBOR,AL
+        cmp word cs:rpc,0
+        if z jmp load_version2_z80file
+;        test AL,8
+;        if nz mov cs:rommod,2   ;turn samram on (irritating; commented away)
+        cmp cs:rommod,3         ;'128 or '128+if1?
+        if ae mov cs:rommod,1   ;if so, turn 128 off, if1 on
+        mov byte cs:hstate,0    ;default state of 74ls259
+        mov byte cs:if1flg,0
+        push ax                 ;save 'compression' bit
+        push bx
+        call load_romfile
+        pop bx
+        mov ds,cs:specseg
+        mov dx,04000            ;POINT NAAR SCHERM
+        mov cx,0c000            ;MAXIMAAL 49152 BYTES=48K
+        mov ah,03f
+        int 021                 ;LAAD PROGRAMMA
+        pop cx                  ;compr. bit in cl & 16
+        if c jmp lzf_error_close
+        push ax                 ;length of data file
+        mov ah,03e              ;close handle
+        int 021
+        pop ax
+        TEST cl,16
+        JZ niet_uitpakken
+        CALL DESCRUNGEIT
+        jmp uitpakken_klaar
+niet_uitpakken:
+        cmp ax,49152
+        if nz stc
+UITPAKKEN_KLAAR:
+        pop ds
+        mov ax,1
+        jc ret
+        xor ax,ax
+        cmp cs:rommod,2
+        jne ret
+        push ds
+        jmp ims_pages_ok        ;to convert hstate to outs to address 31
+        ret
+
+load_sna_file:
+        mov cx,27
+        mov ah,03f
+        int 021
+        if c jmp lzf_error_close
+        cmp ax,27
+        if nz jmp lzf_error_close
+        mov byte cs:rommod,0    ;no if1
+        mov byte cs:if1flg,0    ;not paged in
+        push bx
+        call load_romfile
+        pop bx
+        mov ds,cs:specseg
+        mov dx,04000            ;wijs naar scherm
+        mov cx,0c000            ;lees 48K bytes
+        mov ah,03f
+        int 021                 ;LAAD PROGRAMMA
+        if c jmp lzf_error_close
+        mov ah,03e              ;close handle
+        int 021
+        push es
+        push si
+        push cs
+        pop ds
+        push cs
+        pop es
+        mov al,b[offset rfa+19]     ;IFF2
+        and al,4
+        if nz mov al,0ff
+        mov b[offset rfa+19],al
+        mov b[offset rfa+27],al     ;IFF1
+        mov ah,b[offset rfa+26]     ;border
+        cmp ah,7
+        if a mov ah,0
+        mov al,b[offset rfa+20]     ;R
+        shl ax,1
+        mov b[offset rfa+26],ah
+        mov bx,w[offset rfa+23]     ;SP
+        cmp bx,16384
+        ja sna_normal
+        mov w[offset rfa+28],072    ;PC -> RETN
+        jmp sna_continue
+sna_normal:
+        push ds
+        mov ds,w[offset specseg]
+        mov ax,w[bx]
+        pop ds
+        mov w[offset rfa+28],ax     ;PC
+        inc bx
+        inc bx
+        mov w[offset rfa+23],bx
+sna_continue:
+        mov si,xtabsna
+        mov cx,27
+        xor bh,bh
+        xor dh,dh
+invxloop:
+        lodsb
+        mov bl,al
+        lodsb
+        mov dl,al
+        mov al,[offset rfa+bx]
+        xchg bx,dx
+        xchg al,[offset rfa+bx]
+        xchg bx,dx
+        mov [offset rfa+bx],al
+        loop invxloop
+        pop si
+        pop es
+        pop ds
+        xor ax,ax
+        call swap_mem
+        xor ax,ax
+        ret
+
+xtabsna:
+        db 0,22,1,21,2,13,3,14,4,9,5,10,6,28,7,29,8,23,9,24,10,22,11,20,12,26
+        db 13,20,14,26,15,22,16,28,17,26,18,24,19,21,21,23,22,29,23,29,24,28
+        db 25,26,26,28,28,29
+
+popandret:
+        pop ds
+        ret
+load_version2_z80file:
+        mov dx,offset length
+        mov cx,2
+        mov ah,03f
+        int 021
+        if c jmp lzf_error_close
+        mov cx,23
+        xchg word cs:length,cx
+        cmp ax,2
+        if nz jmp lzf_error_close
+        mov ax,cx
+#if oldversionload
+        cmp ax,21
+        jz loadthistoo
+#endif
+        cmp ax,23
+        mov ax,2
+        jnz popandret           ;unknown version!
+loadthistoo:
+        mov dx,offset rpc2
+        mov ah,03f
+        int 021
+        if c jmp lzf_error_close
+        cmp ax,cx
+        if nz jmp lzf_error_close
+        mov ax,word cs:rpc2
+        mov cs:word rpc,ax
+        push bx
+        call load_romfile
+        pop bx
+        mov cs:b[offset ramstate+1],0   ;Pretend the rom is paged in all ram pages
+        mov cs:b[offset ramstate+2],0   ;This will prevent SWAP_MEM from freshing
+        mov cs:b[offset ramstate+3],0   ;up the internal buffers with old data
+load_memblocks:
+        push cs
+        pop ds
+        mov ah,03f
+        mov cx,3
+        mov dx,offset mlength
+        int 021
+        if c jmp lzf_error_close
+        test ax,ax
+        if z jmp blocks_loaded
+        cmp ax,3
+        if nz jmp lzf_error_close
+        push ds
+        mov ax,cs:mdrvseg
+        mov ds,ax
+        xor dx,dx
+        mov cx,cs:mlength
+        mov ah,03f
+        int 021
+        pop ds
+        if c jmp lzf_error_close
+        cmp ax,cx
+        if nz jmp lzf_error_close
+        push bx
+        call unpack_16k
+        pop bx
+        if c jmp lzf_error_close
+        jmp load_memblocks
+blocks_loaded:
+        cmp byte cs:rommod,3
+        if ae jmp init_mem_128
+        mov ax,0305
+        call swap_mem
+        mov ax,0108                     ;standard page layout
+        call swap_mem
+        mov ax,0204
+        call swap_mem
+ims_pages_ok:
+        mov bx,offset in31tab
+        mov cx,8
+ims1:   mov cs:b[bx],0
+        inc bx
+        loop ims1
+        push cs
+        pop es
+        mov al,cs:hstate
+        mov cx,31
+        mov bh,0
+        and al,255-4            ;Do not switch off the '259 yet
+ims2:   shr al,1                ;This pages the 2nd 32K rambank if neccesary
+        push bx
+        rcl bh,1
+        call far out_bc_far     ;without effect if samram not active
+        pop bx
+        inc bh
+        cmp bh,8
+        jne ims2
+        mov bh,5
+        test byte cs:hstate,4
+        if nz call far out_bc_far
+        pop ds
+        xor ax,ax
+        ret
+init_mem_128:
+        mov ax,0300             ;to prevent troubles when in non-ems mode
+        call swap_mem
+        mov ax,2                ;'128 rom; active at reset
+        call swap_mem
+        mov ax,0108             ;page 5
+        call swap_mem
+        mov ax,0205             ;page 2
+        call swap_mem
+        mov ax,0303             ;page 0
+        call swap_mem
+        mov bh,cs:hstate
+        mov byte cs:hstate,0    ;in accordance with above
+        push cs
+        pop es
+        mov cx,07ffd
+        call out_bc_far         ;now switch the rom and rambanks
+        pop ds
+        xor ax,ax
+        ret
+
+lzf_error_close:
+        pop ds
+        mov ah,03f
+        int 021
+        mov ax,1
+        ret
+
+unpack_16k:
+        push ds
+        push es
+        mov al,cs:mpage
+        mov ah,3
+        call swap_mem
+        mov es,cs:specseg
+        mov di,0c000
+        mov ax,cs:mdrvseg
+        sub ax,0c00
+        mov ds,ax               ;Long Live Real Mode!
+        mov si,0c000
+        mov cx,04000
+        cld
+        call descr_loop         ;c=error
+        cmc
+        if c cmp di,1
+        cmc
+        pop es
+        pop ds
+        ret
+
+pack_16k:
+        push ds
+        push es
+        mov al,cs:mpage
+        mov ah,3
+        call swap_mem
+        mov ds,cs:specseg
+        mov si,0c000
+        mov ax,cs:mdrvseg
+        sub ax,0c00
+        mov es,ax
+        mov di,0c000
+        mov cx,04000
+        cld
+        call noblock
+        mov cx,di
+        sub cx,0c000
+        pop es
+        pop ds
+        ret
+
+;
+;The next subroutine saves a version 2 Z80 file to disk. On entry, BX
+;holds the handle. AX<>0 on exit if a write error occurred.
+;Imode must hold the correct bits on entry (see _maakinstelbits)
+;
+save_z80_file:
+        push bx
+        call mdrv_clearbuffer           ;i'm going to use the mdrv buffer
+        cmp byte cs:rommod,2
+        jnz szf_nosam
+        mov bx,offset in31tab
+        mov cx,8
+szf_sam_bits:
+        mov al,cs:b[bx]
+        ror ax,1
+        inc bx
+        loop szf_sam_bits
+        mov byte cs:hstate,ah           ;store the state of the 74ls259 chip
+szf_nosam:
+        pop bx
+        mov word cs:length,23
+        mov ax,cs:rpc
+        mov cs:rpc2,ax
+        mov cs:rpc,0
+        push cs
+        pop ds
+        mov dx,offset rfa
+        mov cx,55                       ;23+2+30
+        mov ah,040
+        int 021
+        if c jmp szf_error
+        cmp ax,55
+        if nz jmp szf_error
+        mov ax,cs:rpc2
+        mov cs:rpc,ax
+        mov al,cs:b[offset ramstate]    ;save ram pageing state
+        push ax
+        mov al,cs:b[offset ramstate+1]
+        push ax
+        mov al,cs:b[offset ramstate+2]
+        push ax
+        mov al,cs:b[offset ramstate+3]
+        push ax
+        mov ax,0100
+        call swap_mem                   ;page the rom in all rambanks to store
+        mov ax,0200                     ;the memory in internal rambanks
+        call swap_mem                   ;(Or: waste of time in ems mode)
+        mov ax,0300
+        call swap_mem
+        mov byte cs:mpage,3             ;normal: 4,5,8. Sam: 4-8. 128: 3-10
+szf_saveloop:
+        mov al,cs:mpage
+        cmp al,3
+        jnz szf_s_no3
+        cmp byte cs:rommod,3
+        jb szf_next
+szf_s_no3:
+        cmp al,9
+        jb szf_s_less9
+        cmp byte cs:rommod,3
+        jb szf_next
+szf_s_less9:
+        cmp al,6
+        jb szf_do_save
+        cmp al,7
+        ja szf_do_save
+        cmp byte cs:rommod,2
+        jb szf_next
+szf_do_save:
+        push bx
+        call pack_16k           ;pack page MPAGE in mdrvseg:0000. CX=length
+        pop bx
+        mov cs:mlength,cx
+        push cs
+        pop ds
+        mov dx,offset mlength
+        mov cx,3
+        mov ah,040
+        int 021
+        if c jmp szf_error1
+        cmp ax,3
+        if nz jmp szf_error1
+        mov cx,cs:mlength
+        mov ds,cs:mdrvseg
+        xor dx,dx
+        mov ah,040
+        int 021
+        if c jmp szf_error1
+        cmp ax,cx
+        if nz jmp szf_error1
+szf_next:
+        mov al,cs:mpage
+        inc al
+        mov cs:mpage,al
+        cmp al,11
+        jb szf_saveloop
+        mov ah,03f
+        int 021
+        mov ax,0
+        adc ax,0
+szf_error_restore:
+        mov bx,ax                       ;save error flag
+        pop ax
+        mov ah,3
+        call swap_mem                   ;repage previously active pages
+        pop ax
+        mov ah,2
+        call swap_mem
+        pop ax
+        mov ah,1
+        call swap_mem
+        pop ax
+        mov ah,0
+        call swap_mem
+        mov ax,bx
+        ret
+szf_error1:
+        mov ah,03f
+        int 021
+        mov ax,1                ;signal error
+        jmp szf_error_restore   ;restore ems pages
+szf_error:
+        mov ah,03f
+        int 021
+        mov ax,1
+        ret
+
+
+
+
+startup ends
+
