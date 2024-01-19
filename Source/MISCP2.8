@@ -1,0 +1,2322 @@
+startup segment para public
+
+label_at_para:
+
+KEYBOARD:
+        PUSH AX
+        test cs:byte keyscan,1
+        je keyb_nokeyscan
+        mov al,020
+        out 020,al
+        in al,060
+        cmp al,0e0
+        jz return_keyscan
+        cmp al,0e1
+        jz return_keyscan
+        or al,cs:break
+        cmp al,0f0
+        mov byte cs:break,0
+        if z mov byte cs:break,080
+        test al,080
+        if z or cs:byte keyscan,2
+        cmp al,040
+        if z or cs:byte keyscan,4       ;F6
+return_keyscan:
+        in al,061
+        push ax
+        or al,080
+        out 061,al
+        pop ax
+        out 061,al
+        pop ax
+        sti
+        iret
+keyb_nokeyscan:
+        cmp cs:byte modflg,0
+        je keyb_normal
+        pushf
+        call cs:d[offset kbdadr]
+        mov ah,1
+        int 016
+        jz keyb_nokey
+        or byte cs:modflg,2             ;Signaleer 'Toets ingedrukt in real mode'
+        and byte cs:modflg,0fe
+        in al,021
+        and al,0fe                      ;Zet timer aan (als ie uitstaat)
+        out 021,al
+keyb_nokey:
+        pop ax
+        sti
+        iret
+keyb_normal:
+        MOV AL,020
+        OUT 020,AL
+        PUSH BX
+        PUSH CX
+        PUSH DX
+        IN AL,060
+keyb_normal_entry:
+        CMP AL,0E0
+        JZ e0GET_OUT
+        CMP AL,0E1
+        JZ GET_OUT
+        test byte cs:e0flag,0ff
+        mov byte cs:e0flag,0
+        jz e0flag_inaktief
+        mov ah,al
+        and ah,07f
+        cmp ah,02a
+        jz get_out
+        cmp ah,036
+        jz get_out
+e0flag_inaktief:
+        CMP AL,0F0
+        JNZ NO_BRK
+        MOV BYTE CS:BREAK,080
+        JMP GET_OUT
+NO_BRK:
+        OR AL,CS:BREAK          ;MAAK ER EEN 'BREAK' VAN ALS ER 0F0 IS GEWEEST
+        MOV AH,AL
+        AND AL,080
+        MOV CS:BREAK,AL         ;ZET IN BREAK 080 ALS BRK
+        MOV AL,AH
+        CMP AL,CS:LASTKEY
+        MOV CS:LASTKEY,AL
+        JZ GET_OUT_NOBRK_2
+        AND AL,07F              ;HAAL BRKBIT ERAF
+        CMP AL,058
+        JA GET_OUT_NOBRK_2
+        TEST AL
+        JZ GET_OUT_NOBRK_2
+        CALL KEY_TRANS
+        MOV BYTE CS:BREAK,0
+GET_OUT:
+        CALL MATRIX_ERROR       ;EMULEER ZX SPECTRUM KEYBOARD MATRIX
+        cmp byte cs:winkey,0
+        jnz dont_reset_kbd
+        IN AL,061
+        PUSH AX
+        OR AL,080
+        OUT 061,AL
+        POP AX
+        OUT 061,AL
+dont_reset_kbd:
+        POP DX
+        POP CX
+        POP BX
+        POP AX
+        sti
+        IRET
+GET_OUT_NOBRK_2:
+        MOV byte CS:BREAK,0
+        JMP GET_OUT
+e0get_out:
+        mov byte cs:e0flag,0ff
+        jmp get_out
+
+KEY_TRANS:
+        PUSH SI
+        MOV BX,offset KEYBTAB1
+        CS:XLATB
+        TEST AL
+        JZ GET_OUT_NOBRK
+        TEST AL,011000000XB
+        JZ NORMAL_CHAR
+        MOV BL,AL
+        AND BX,011111XB
+        MOV SI,BX
+        ROL BX,1
+        TEST byte CS:[SI+SHFTSTATES],1
+        JZ FIRSTTIME                    ;LAAT EERST OUDE TOETS 'INTERN' LOS
+        PUSH WORD CS:BREAK
+        MOV byte CS:BREAK,080           ;LAAT LOS
+        PUSH BX
+        PUSH SI
+        CALL CS:[BX+KEY_ROUTINES]
+        POP SI
+        POP BX
+        POP WORD CS:BREAK
+FIRSTTIME:
+        CMP byte CS:BREAK,080
+        JZ NOCHANGE_AT_BREAKTIME
+        MOV AL,CS:SHIFTSTATE
+        OR AL,1                         ;GEEFT AAN 'KEY PRESSED'
+        MOV CS:[SI+SHFTSTATES],AL
+NOCHANGE_AT_BREAKTIME:
+        PUSH SI
+        CALL CS:[BX+KEY_ROUTINES]
+        POP SI
+        CMP byte CS:BREAK,080
+        IF Z MOV byte CS:[SI+SHFTSTATES],0   ;'KEY RELEASED'
+        JMP GET_OUT_NOBRK
+
+NORMAL_CHAR:
+        CMP AL,8                ;SHIFT
+        JNZ NOSH
+        MOV AH,CS:BREAK
+        MOV CS:SHIFTSTATE,AH
+NOSH:
+        MOV CL,AL
+        MOV AH,080
+        SHR CL,1
+        SHR CL,1
+        SHR CL,1
+        ROL AH,CL
+        CALL SETKBIT
+GET_OUT_NOBRK:
+        MOV byte CS:BREAK,0
+        POP SI
+        RET
+
+
+SETKBIT:
+;ZET EEN BIT IN IN_TAB, AFH.V. BREAK. ENTRY: AH=MASK(COL), AL0-2=ROW
+        MOV BL,AL
+        AND BX,7                ;BX=OFFSET IN_TAB
+        ADD BX,OFFSET IN2_TAB
+        TEST byte CS:BREAK
+        JNZ RESET_BIT
+        OR CS:[BX],AH
+        RET
+RESET_BIT:
+        NOT AH
+        AND CS:[BX],AH
+        RET
+
+set_joystick:
+;Zet een bit in in_tab of in kempston_state, afhankelijk van joymode,
+;de code in AL (0,1,2,3,4 = links,rechts,onder,boven,schieten) en BREAK.
+        xor ah,ah
+        mov bx,ax
+        mov al,cs:joymode
+        add bx,ax
+        shl ax,1
+        shl ax,1
+        add bx,ax
+        shl bx,1
+        mov ax,cs:[bx+joy_tab]
+        push ax
+        cmp byte cs:joymode,0
+        if z call setshft
+        pop ax
+        cmp byte cs:joymode,1
+        jnz setkbit                     ;kempston krijgt 'sonderbehandlung'
+        test byte cs:break
+        jnz reset_kempston_bit
+        or cs:[kempston_state],al
+        ret
+reset_kempston_bit:
+        not al
+        and cs:[kempston_state],al
+        ret
+
+KEY_ROUTINES:
+        DW KR0,KR1,KR2,KR3,KR4,KR5,KR6,KR7,KR8,KR9,KR10,KR11,KR12,KR13,KR1BIS,kr15
+        DW KR16,KR17,KR18,KR19,KR20,KR21,KR22,KR23,KR24,KR25,KR26,KR27,kr28,kr29
+;Voor elke key routine is er een shiftstate in z80.8 gereserveerd!!!
+
+KR0:
+        MOV AX,0100             ;ESC (=EDIT)
+        CALL SETKBIT
+        MOV AX,0103
+        JMP SETKBIT
+
+KR1:    MOV AX,0207             ;- OF _
+        CALL SETKBIT
+        MOV AL,1                ;KR1
+KR1A:   CALL TESTSHFT
+        MOV AX,0806             ;J (-)
+        IF NZ MOV AX,0104       ;0 (_)
+        JMP SETKBIT
+KR1BIS: MOV AX,0207
+        CALL SETKBIT
+        MOV AL,14
+        JMP KR1A
+
+KR2:    MOV AX,0207             ;+ OF =
+        CALL SETKBIT
+        MOV AL,2
+        CALL TESTSHFT
+        MOV AX,0206             ;L (=)
+        IF NZ MOV AH,4          ;K (+)
+        JMP SETKBIT
+
+KR3:    MOV AX,0100             ;BACKSPACE (=SHFT 0)
+        CALL SETKBIT
+        MOV AX,0104
+        JMP SETKBIT
+
+KR4:    MOV AX,0207             ; ; OF :
+        CALL SETKBIT
+        MOV AL,4
+        CALL TESTSHFT
+        MOV AX,0205             ;O
+        IF NZ MOV AX,0200       ;Z
+        JMP SETKBIT
+
+KR5:    MOV AX,0207             ;" OF '
+        CALL SETKBIT
+        MOV AL,5
+        CALL TESTSHFT
+        MOV AX,0105             ;P
+        IF Z MOV AX,0804
+        JMP SETKBIT
+
+KR6:    cmp byte cs:azerty,0
+        jnz kr6_az
+        MOV AX,0207             ;, OF <
+        CALL SETKBIT
+        MOV AL,6
+        CALL TESTSHFT
+        MOV AX,0807             ;N
+        IF NZ MOV AX,0802       ;R
+        JMP SETKBIT
+kr6_az: mov ax,0207             ;; or .
+        call setkbit
+        mov al,6
+        call testshft
+        mov ax,0205             ;O
+        if nz mov ax,0407       ;M
+        jmp setkbit
+
+
+KR7:    cmp byte cs:azerty,0
+        jnz kr7_az
+        MOV AX,0207             ;. OF >
+        CALL SETKBIT
+        MOV AL,7
+        CALL TESTSHFT
+        MOV AX,0407             ;M
+        IF NZ MOV AX,01002      ;T
+        JMP SETKBIT
+kr7_az: mov ax,0207             ;: or /
+        call setkbit
+        mov al,7
+        call testshft
+        mov ax,0200             ;Z
+        if nz mov ah,010        ;V
+        jmp setkbit
+
+
+KR8:    cmp byte cs:azerty,0
+        jnz kr8_az
+        MOV AX,0207             ;/ OF ?
+        CALL SETKBIT
+        MOV AL,8
+        CALL TESTSHFT
+        MOV AX,01000            ;V
+        IF NZ MOV AH,08         ;C
+        JMP SETKBIT
+kr8_az: mov ax,0207
+        call setkbit            ;, or ?
+        mov al,8
+        call testshft
+        mov ax,0807             ;N
+        if nz mov ax,0800       ;C
+        jmp setkbit
+
+KR9:    MOV AX,0207             ;*
+        CALL SETKBIT
+        MOV AX,01007
+        JMP SETKBIT
+
+KR10:   MOV AX,0100             ;CAPSLOCK
+        CALL SETKBIT
+        MOV AX,0203             ;2
+        call setkbit
+        test byte cs:break
+        jnz ret
+;        PUSH ES
+;        XOR AX,AX
+;        MOV ES,AX
+;        XOR ES:B[0417],040
+;        CALL SET_KBD_LEDS
+;        POP ES
+        ret
+
+KR11:   TEST byte CS:BREAK           ;NUMLOCK
+        JNZ RET
+        test cs:b[in2_tab+7],2       ;CTRL/ALT: dan pauze dwz niks doen
+        jnz ret
+        NOT byte CS:NUMLCK
+;        PUSH ES
+;        XOR AX,AX
+;        MOV ES,AX
+;        XOR ES:B[0417],020
+;        CALL SET_KBD_LEDS
+;        POP ES
+        RET
+
+KR12:   TEST byte CS:BREAK           ;SCROLL LOCK
+        JNZ RET
+        TEST CS:B[IN2_TAB+7],2       ;CTRL/ALT: dan naar DOS
+        JZ kr12_no_ctrlalt
+        mov byte cs:c_active,0fa
+        mov byte cs:c_action_code,0fa     ;zet C flags op aktief, zodat straks bij
+        ret                          ;timerinterrupt C-routine wordt aangeroepen
+                                     ;(zie xtra.c, label ENTRY)
+kr12_no_ctrlalt:
+        TEST CS:B[IN2_TAB],1
+        jz kr12_no_shift
+        MOV byte CS:NMI,0FF     ;ALS SHFT+SCRL_LOCK, DAN NMI
+        ret
+kr12_no_shift:
+;        PUSH ES
+;        XOR AX,AX
+;        MOV ES,AX
+;        XOR ES:B[0417],010      ;toggle scrolllock status
+;        CALL SET_KBD_LEDS
+;        POP ES
+        ret
+
+SET_KBD_LEDS:
+;        push es
+;        xor ax,ax
+;        mov es,ax
+;        in al,060
+;        mov cx,02000
+;set_kbd_leds_delay_twee:
+;        loop set_kbd_leds_delay_twee
+;        MOV AL,0ED
+;        OUT 060,AL
+;        PUSH CX
+;        MOV CX,02004
+;        MOV AL,ES:B[0417]
+;        SHR AL,CL
+;        and al,7
+;SET_KBD_LEDS_DELAY:
+;        LOOP SET_KBD_LEDS_DELAY
+;        OUT 060,AL
+;        POP CX
+;        pop es
+        RET
+
+KR13:   mov al,3                ;omhoog (keypad 8)
+        jmp set_joystick
+
+KR15:   xor al,al               ;links (keypad 4)
+        jmp set_joystick
+
+KR16:   mov al,1                ;rechts (keypad 6)
+        jmp set_joystick
+
+KR17:   MOV AX,0207             ;+ (OF =)
+        CALL SETKBIT
+        MOV AL,17
+        CALL TESTSHFT
+        MOV AX,0406             ;L (+)
+        IF NZ MOV AH,2          ;K (=)
+        JMP SETKBIT
+
+KR18:   mov al,2                ;omlaag (keypad 2)
+        jmp set_joystick
+
+kr19:   mov al,4                     ;INS/DEL/5/TAB: schieten.
+        jmp set_joystick
+
+
+
+SETSHFT:
+        mov al,CS:NUMLCK
+;        cmp byte cs:rommod,2           ; ***** HMc REM *****
+        cmp byte cs:rommod,3            ; ***** HMc MOD *****
+        if a xor al,cs:curs128
+        test al
+        JZ RET
+        MOV AX,0100
+        JMP SETKBIT
+
+TESTSHFT:
+        MOV BL,AL
+        XOR BH,BH
+        TEST byte CS:BREAK
+        JZ NOBRK
+        CMP byte CS:[SHFTSTATES+BX],1
+        JZ WAS_SHFT
+        CMP AL,AL
+        RET
+WAS_SHFT:
+        CMP byte CS:SHIFTSTATE,0
+        IF Z OR CS:B[IN2_TAB],1
+        RET                             ;ALTIJD NZ
+NOBRK:
+        AND CS:B[IN2_TAB],0FE
+        CMP byte CS:[SHFTSTATES+BX],081
+        RET
+
+MATRIX_ERROR:
+        PUSH SI
+        PUSH DI
+        PUSH DS
+        PUSH ES
+        CLD
+        PUSH CS
+        PUSH CS
+        POP DS
+        POP ES
+        MOV SI,offset IN2_TAB
+        MOV DI,offset IN_TAB
+        MOVSW
+        MOVSW
+        MOVSW
+        MOVSW
+        MOV SI,offset IN_TAB
+        MOV DX,7
+MATRIX_LOOP:
+        LODSB
+        MOV AH,AL
+        MOV CX,DX
+        MOV DI,SI
+M_INNER_LOOP:
+        MOV AL,[DI]             ;HAAL VERDEROPLIGGENDE WAARDE
+        TEST AL,AH              ;GELIJKE TOETSEN?
+        JZ NO_EQ_KEY            ;GEEN GELIJKE TOETS INGEDRUKT
+        OR AL,AH                ;OR VERDEROPLIGGENDE WAARDE MET HUIDIGE WAARDE
+        MOV AH,AL
+NO_EQ_KEY:
+        STOSB                   ;ZET NIEUWE WAARDE WEG & INC DI
+        LOOP M_INNER_LOOP
+        NOT AH
+        OR AH,011100000XB
+        MOV [SI-1],AH
+        DEC DX
+        JNZ MATRIX_LOOP
+        NOT B[SI]
+        OR B[SI],011100000XB
+        POP ES
+        POP DS
+        POP DI
+        POP SI
+        RET
+
+
+
+MSTOSB:
+        xor al,cs:b[offset checksum]
+        ADD AL,CS:[BP]
+        xor al,cs:b[offset checksum+1]
+        INC BP
+        CMP BP,OFFSET inbuf+256
+        IF Z MOV BP,OFFSET inbuf
+        STOSB
+        ret
+
+SCRUNGEIT:
+        CLD
+        PUSH CS
+        POP ES
+        MOV SI,081
+        LODSB
+        CMP AL,020
+        IF NZ DEC SI
+        MOV DI,OFFSET INBUF
+SCRCPY: LODSB
+        STOSB
+        CMP AL,0D
+        JNZ SCRCPY
+        MOV AX,SEG OPC0
+        MOV DS,AX
+        MOV ES,AX
+        XOR SI,SI
+        XOR DI,DI
+        MOV CX,0FFEF
+        MOV BP,OFFSET INBUF
+SCR0:   CMP W[SI],03D8A
+        JNZ NOBLK
+;        CMP W[SI+2],0DB32
+;        JNZ NOBLK
+        CMP W[SI+2],0E3FF
+        JNZ NOBLK
+        CMP W[SI+4],09090
+        JNZ NOBLK
+        CMP W[SI+6],09090
+        JNZ NOBLK
+        CMP B[SI+8],090
+        JNZ NOBLK
+        ADD SI,9
+        SUB CX,8
+        MOV AL,0
+        call mstosb
+        MOV AL,092
+        call mstosb
+        MOV AL,090
+        call mstosb
+        LOOP SCR0
+
+NOBLK:  CMP W[SI],0
+        JNZ __NOZERO
+        CMP W[SI+2],0
+        JNZ __NOZERO
+        MOV DX,0
+COUNTZERO:
+        CMP DX,0100
+        JZ EOBFOUND
+        CMP CX,-1
+        JZ EOBFOUND
+        LODSB
+        INC DX
+        DEC CX
+        TEST AL,AL
+        JZ COUNTZERO
+EOBFOUND:
+        DEC DL
+        INC CX
+        DEC SI
+        MOV AL,DL
+        call mstosb
+        MOV AL,092
+        call mstosb
+        MOV AL,090
+        call mstosb
+        JCXZ SCR_FINISHED
+        JMP SCR0
+__NOZERO: CMP W[SI],09092
+        JZ NOPSFOUND
+        LODSB
+        call mstosb
+        DEC CX
+        IF NZ JMP SCR0
+        JMP SCR_FINISHED
+NOPSFOUND:
+        MOV AL,1
+        call mstosb
+        LODSB
+        call mstosb
+        LODSB
+        call mstosb
+        DEC CX
+        DEC CX
+        JMP SCR0
+SCR_FINISHED:
+        MOV AX,BP
+        STOSW
+        MOV CS:ROMADR,DI
+        mov ax,seg introscr
+        mov ds,ax
+        mov si,offset introscr
+        mov cx,01b00
+        rep movsb
+        mov ah,062
+        int 021                 ;get process segment
+        mov ds,bx
+        mov ds,[02c]
+        xor si,si
+getprogname:
+        lodsb
+        and al,al
+        jnz getprogname
+        lodsb
+        and al,al
+        jnz getprogname
+        inc si
+        inc si
+        mov dx,si
+        mov ax,03d02            ;open file
+        int 021
+        jc interr
+        mov bx,ax
+        mov ah,03f
+        mov cx,10
+        push cs
+        pop ds
+        mov dx,exeheader
+        int 021
+        jc interr
+        mov ax,04202            ;seek, eof+offset
+        mov dx,-0fff0-01b00
+        mov cx,-2               ;0fff0 for emulator, 01b00 for introscr
+        int 021
+        push es
+        pop ds
+        mov ah,040
+        xor dx,dx
+        mov cx,di               ;di still holds pointer to end emulator seg
+        int 021
+        jnc noerr
+interr: mov dx,ierr
+        jmp print
+noerr:  mov ax,04201
+        xor cx,cx
+        xor dx,dx
+        int 021
+        push dx
+        push ax
+        mov cx,ax
+        xchg dl,dh
+        shr dx,1
+        and cx,511
+        sub ax,cx
+        xchg ah,al
+        shr ax,1
+        add ax,dx               ;ax:cx is lengte
+        test cx,cx
+        if nz inc ax
+        mov cs:w[offset exeheader+2],cx
+        mov cs:w[offset exeheader+4],ax
+        mov ax,04200
+        xor cx,cx
+        xor dx,dx
+        int 021
+        mov ah,040
+        mov cx,10
+        push cs
+        pop ds
+        mov dx,offset exeheader
+        int 021
+        jc interr
+        mov ax,cs
+        add ax,cs:w[offset exeheader+8]         ;header size
+        sub ax,seg _first_func
+        mov dl,4
+        xor cx,cx
+times16:
+        shl ax,1
+        rcl cx,1
+        dec dl
+        jnz times16
+        add ax,offset romadr
+        adc cx,0
+        mov dx,ax
+        mov ax,04200
+        int 021
+        push cs
+        pop ds
+        mov dx,offset romadr
+        mov cx,2+256
+        mov ah,040
+        int 021
+        pop dx
+        pop cx
+        mov ax,04200
+        int 021
+        mov ah,040
+        xor cx,cx
+        int 021
+        mov ah,03e
+        int 021
+        if c jmp interr
+        mov ax,04c00
+        int 021
+
+
+emulate_kbd_interrupt:
+        pushf
+        push cs
+        mov bx,offset eki_ret
+        push bx
+        push ax
+        push bx
+        push cx
+        push dx
+        jmp keyb_normal_entry
+eki_ret:
+        ret
+
+
+
+INSTALL_COM:
+        PUSH AX
+        PUSH BX
+        PUSH CX
+        PUSH DX
+        PUSH ES
+        CMP BYTE CS:INMODE,2
+        JNZ LEAVE_I_C
+        XOR AX,AX
+        MOV ES,AX
+        MOV AX,CS:INNUM
+        MOV BX,0400
+        SHL AX,1
+        ADD BX,AX
+        MOV DX,ES:[BX]
+        MOV CS:COMPORT,DX
+        and ax,2
+        SHL AX,1
+        MOV BX,48
+        SUB BX,AX
+        MOV ES:W[BX],OFFSET GETSENTBYTE
+        MOV ES:[BX+2],CS
+        MOV BX,CS:INNUM
+        AND BL,1
+        INC BL
+        XOR BL,3
+        MOV CL,3
+        SHL BL,CL
+        NOT BL
+        IN AL,021
+        AND AL,BL                       ;bit 3/4
+        OUT 021,AL
+        IN AL,DX                        ;RESET CHIP
+        INC DX
+        MOV AL,1                        ;EI WHEN DATA AVAIL
+        OUT DX,AL
+        INC DX
+        INC DX
+        INC DX
+        MOV AL,0
+        OUT DX,AL
+LEAVE_I_C:
+        POP ES
+        POP DX
+        POP CX
+        POP BX
+        POP AX
+        RET
+
+UNINSTALL_COM:
+        CMP BYTE CS:INMODE,2
+        JNZ RET
+        PUSH AX
+        PUSH BX
+        PUSH CX
+        PUSH DX
+        MOV DX,CS:COMPORT
+        INC DX
+        XOR AL,AL
+        OUT DX,AL
+        INC DX
+        INC DX
+        INC DX
+        OUT DX,AL
+        MOV BX,CS:INNUM
+        AND BL,1
+        INC BL
+        XOR BL,3
+        MOV CL,3
+        SHL BL,CL
+        IN AL,021
+        OR AL,BL                ;bit 3/4
+        OUT 021,AL
+        POP DX
+        POP CX
+        POP BX
+        POP AX
+        RET
+
+RESET:                          ;For F6 reset, see CAST_RESET in ed.8
+        MOV BYTE CS:RI,0        ;I REGISTER OP NUL ZETTEN
+        MOV BYTE CS:RR,0        ;R = 0
+        MOV BYTE CS:RR_BIT7,16  ;R7 = 0, SAMRAM AAN
+        MOV BYTE CS:IMODE,0     ;BIJ RESET: INTERRUPT MODE 0
+        MOV BYTE CS:NMI,0       ;GEWONE INTERRUPT GENEREREN
+        MOV BYTE CS:IF1FLG,0    ;ZET IF1 ROM UIT
+        MOV BYTE CS:QFLAG,0     ;ZET FLAG VOOR EDF8  (ZIE QUEER1 IN INSTR.8)
+        MOV WORD CS:RPC,0       ;PROGRAM COUNTER OP 0
+        MOV BYTE CS:IFF,0       ;DI
+        MOV BYTE CS:IFF2,0      ;VOOR NMI
+        MOV BYTE CS:BORCLR,0ff  ;BORDER COLOUR
+        MOV BYTE CS:NEWBOR,0
+        MOV WORD CS:RS_IN,0
+        MOV WORD CS:RS_OUT,0
+        MOV BYTE CS:DTR,0
+        MOV BYTE CS:CTS,0
+        MOV BYTE CS:COMSDAT,0
+        RET
+
+GET_REGS:
+        MOV AX,CS:RFA
+        MOV CX,CS:RBC
+        MOV SI,CS:RDE
+        MOV DX,CS:RHL
+        MOV BP,CS:RSP
+        MOV DI,CS:RPC
+        RET
+
+SAVE_REGS:
+        MOV CS:RFA,AX
+        MOV CS:RBC,CX
+        MOV CS:RDE,SI
+        MOV CS:RHL,DX
+        MOV CS:RSP,BP
+        MOV CS:RPC,DI
+        RET
+
+SAVE_VECTORS:
+        XOR AX,AX
+        MOV ES,AX
+        MOV AX,ES:[32]
+        MOV CS:TIMADR,AX
+        MOV AX,ES:[34]
+        MOV CS:TIMSEG,AX
+        MOV AX,ES:[36]
+        MOV CS:KBDADR,AX
+        MOV AX,ES:[38]
+        MOV CS:KBDSEG,AX
+        MOV AX,ES:[108]
+        MOV CS:CTRLBRKADR,AX
+        MOV AX,ES:[110]
+        MOV CS:CTRLBRKSEG,AX
+        MOV AX,ES:[44]
+        MOV CS:COM1ADR,AX
+        MOV AX,ES:[46]
+        MOV CS:COM1SEG,AX
+        MOV AX,ES:[48]
+        MOV CS:COM2ADR,AX
+        MOV AX,ES:[50]
+        MOV CS:COM2SEG,AX
+        MOV AX,ES:[52]
+        MOV CS:SEGVIOLADR,AX
+        MOV AX,ES:[54]
+        MOV CS:SEGVIOLSEG,AX
+        mov ax,es:[76]                  ; int 13h ***** HMc *****
+        mov cs:int13adr,ax              ; store old vector ***** HMc *****
+        mov ax,es:[78]                  ; int 13h ***** HMc *****
+        mov cs:int13seg,ax              ; store old vector ***** HMc *****
+        RET
+
+GET_VECTORS:
+        XOR AX,AX
+        MOV ES,AX
+        MOV AX,CS:TIMADR
+        MOV BX,CS:TIMSEG
+        MOV ES:[32],AX
+        MOV ES:[34],BX
+        MOV AX,CS:KBDADR
+        MOV BX,CS:KBDSEG
+        MOV ES:[36],AX
+        MOV ES:[38],BX
+        MOV AX,CS:CTRLBRKADR
+        MOV BX,CS:CTRLBRKSEG
+        MOV ES:[108],AX
+        MOV ES:[110],BX
+        MOV AX,CS:COM1ADR
+        MOV BX,CS:COM1SEG
+        MOV ES:[44],AX
+        MOV ES:[46],BX
+        MOV AX,CS:COM2ADR
+        MOV BX,CS:COM2SEG
+        MOV ES:[48],AX
+        MOV ES:[50],BX
+        MOV AX,CS:SEGVIOLADR
+        MOV BX,CS:SEGVIOLSEG
+        MOV ES:[52],AX
+        MOV ES:[54],BX
+        mov ax,cs:int13adr                      ; get old int13 ***** HMc *****
+        mov bx,cs:int13seg                      ; get old int13 ***** HMc *****
+        mov es:[76],ax                          ; ***** HMc *****
+        mov es:[78],bx                          ; ***** HMc *****
+        RET
+
+init_memory:
+        mov byte cs:if1flg,0    ;if1 not paged in
+        mov word cs:discflg,0   ;disciple not paged in. This also clears M128FLG
+        mov word cs:rompage1,-1 ;No RAM below 16K
+        mov cs:b[offset ramstate+1],0ff
+        mov cs:b[offset ramstate+2],0ff
+        mov cs:b[offset ramstate+3],0ff
+        mov ax,0108
+        call swap_mem
+        mov ax,0204
+;        cmp byte cs:rommod,2           ; ***** HMc REM *****
+        cmp byte cs:rommod,3            ; ***** HMc *****
+        if a mov al,5
+        call swap_mem
+        mov ax,0305
+;        cmp byte cs:rommod,2           ; ***** HMc REM *****
+        cmp byte cs:rommod,3            ; ***** HMc *****
+        if a mov al,3
+        call swap_mem
+        mov bx,offset in31tab
+        mov cx,8
+init_mem_clear74ls259:
+        mov cs:b[bx],0
+        inc bx
+        loop init_mem_clear74ls259
+        mov byte cs:hstate,0
+        ret
+
+INIT_EMULATOR:
+        PUSH DS                 ;BEWAAR DS = specseg
+        PUSH CS
+        POP DS
+        call hoesnel            ;om addnum te initialiseren
+        CLI
+        MOV byte SHIFTSTATE,080
+        MOV byte BREAK,0
+        MOV byte E0FLAG,0
+        MOV word INTEL,0
+        MOV word INTEL2,16384
+        MOV word INTEL3,22528
+        MOV byte RFSHFLG,0
+        MOV byte VIERTEL,2
+        mov byte linecounter,1
+        mov word _tstates,224
+        MOV byte VIDRFSH,0
+        mov byte lastvocbit,0
+        sti
+        MOV BX,OFFSET IN_TAB
+        MOV CX,8               ;2 KEYTABS
+CLEAR_KTB:
+        MOV B[BX],255
+        INC BX
+        LOOP CLEAR_KTB
+        MOV CX,8
+CLEAR_ALL:
+        MOV B[BX],0
+        INC BX
+        LOOP CLEAR_ALL
+        MOV BX,OFFSET SHFTSTATES
+        MOV CX,35
+CLEAR_SFST:
+        MOV B[BX],0
+        INC BX
+        LOOP CLEAR_SFST
+        mov byte amsienablea,0
+        mov byte amsienableb,0
+        pop ds
+        RET
+
+calcchecksum:
+        push ds
+        push si
+        push bx
+        push ax
+        push cs
+        pop ds
+        mov si,offset stext
+        xor bx,bx
+        cld
+l1:     lodsb
+        xor bl,al
+        add bh,al
+        cmp si,offset main
+        jnz l1
+        mov checksum,bx
+        pop ax
+        pop bx
+        pop si
+        pop ds
+        ret
+
+
+
+
+END_SPECTR:
+        CLI
+        MOV AL,020
+        OUT 020,AL
+        MOV AL,0FF
+        OUT 040,AL
+        NOP
+        NOP
+        OUT 040,AL
+        IN AL,061
+        AND AL,011111100XB
+        OUT 061,AL              ;EVT. PIEP UIT
+        MOV AX,CS
+        MOV DS,AX
+        call close_tapefiles
+        CALL UNINSTALL_COM
+        CALL FLUSHOUTPUT
+        CALL CLEARINPUT
+        CALL GET_VECTORS
+        call mdrv_closeall
+        call far _outlog_flushbuf
+        test byte cs:mapflg,0ff
+        je no_mapping
+        push ds
+        mov bx,cs:mapfilehandle
+        test cs:_nohcrmem,0ff
+        jne no_mapping0         ;if there was no mem allocated, don't save
+        mov ax,cs:vgahcrbuf
+        mov ds,ax
+        xor dx,dx
+        mov cx,02000            ;02000*8=65536 locations (rom included)
+        mov ah,040
+        int 021
+no_mapping0:
+        pop ds
+        mov ah,03e
+        int 021
+no_mapping:
+        mov dx,cs:emshandle
+        mov ah,045
+        test dx,dx
+        if nz int 067           ;deallocate ems memory
+        STI
+        call text_mode
+        mov ah,0de
+        mov dl,cs:novellbroadcastmode
+        int 021                 ;reset broadcast mode to original setting
+        mov bx,cs:romhandle
+        mov ah,03e
+        test bx,bx
+        if nz int 021
+        mov bx,cs:_pdhandle
+        mov ah,03e
+        test bx,bx
+        if nz int 021
+        mov bx,cs:_outloghandle
+        mov ah,03e
+        test bx,bx
+        if ne int 021
+        mov bx,cs:xrhandle
+        mov ah,03e
+        test bx,bx
+        if nz int 021
+        mov dx,endmes
+        mov ah,9
+        int 021
+        MOV AX,04C00            ;terminate met exit code 00
+        INT 021
+
+
+
+intro:
+        push cs
+        pop ds
+        mov byte borclr,4
+        mov byte newbor,0
+        mov ax,w[offset specseg]
+        mov es,ax
+        mov di,16384
+        cld
+        mov cx,6912
+        mov ax,seg disciplebuffer       ;here the introscreen is moved
+        mov ds,ax
+        mov si,offset disciplebuffer
+        rep movsb
+        push cs
+        pop ds
+        push es
+        pop ds
+        call video_update
+        mov cx,7
+iwaitl: push cx
+        mov ah,02c
+        int 021
+        mov al,dh
+iwait:  push ax
+        mov ah,0b
+        int 021
+        and al,al
+        jnz key_pressed
+        mov ah,02c
+        int 021
+        pop ax
+        cmp al,dh
+        jz iwait
+        pop cx
+        loop iwaitl
+        jmp intro_exit
+key_pressed:
+        pop ax
+        pop ax
+intro_exit:
+        ret
+
+
+
+segviolation:                           ;PUSH/POP use MOV BX,DS:[BP]
+                                        ;If BP=0ffff, it generates an
+        cmp bp,0ffff                    ;interrupt. This routine makes
+        jnz notmine                     ;sure the Z80 opcode is emulated
+        mov bp,sp                       ;correctly.
+        cmp w[bp+2],seg emulate         ;All this won't work with QEMM installed
+        jnz notmine_bp
+        push ax
+        push di
+        mov di,bx                       ;temporary storage
+        mov ax,w[bp]
+        xor ah,193
+        test ah,203                     ;push / pop?
+        jnz seg_return
+        test ah,4                       ;if push, jump forward
+        jnz seg_dopushlater
+        mov bl,[0ffff]                  ;get the popped value
+        mov bh,[0]
+seg_dopushlater:
+        call seg_xchgregs               ;xchg bx <-> z80 register
+        test ah,4
+        jz seg_return                   ;if pop, we're done
+        mov [0ffff],bl                  ;if push, now push and
+        call seg_xchgregs               ;restore z80 register
+seg_return:
+        mov ax,[bp]
+        add ax,4                        ;step over problematic instruction
+        mov [bp],ax
+        mov bx,di
+        pop di
+        pop ax
+        mov bp,0ffff
+        iret
+notmine_bp:
+        mov bp,0ffff
+notmine:
+        jmp far cs:d[offset segvioladr]
+
+seg_xchgregs:
+        test ah,16
+        jnz seg_deoraf
+        test ah,32
+        jnz seg_hl
+        xchg bx,cx
+        ret
+seg_hl:
+        cmp al,04d
+        if b xchg bx,dx
+        if ae xchg bx,di
+        ret
+seg_deoraf:
+        test ah,32
+        jnz seg_af
+        xchg bx,si
+        ret
+seg_af:
+        xchg bx,[bp-2]
+        ret
+
+adlib_write:                 ;writes value ah to register al
+        push cx
+        push dx
+        mov dx,0388
+        out dx,al
+        in al,dx
+        in al,dx
+        in al,dx
+        in al,dx
+        in al,dx
+        in al,dx
+        mov al,ah
+        inc dx
+        out dx,al
+        pop dx
+        pop cx
+        ret
+
+adlib_writep:
+        call adlib_write
+adlib_pause:
+        cmp cs:adlib,0
+        je ret
+        push ax
+        push dx
+        push cx
+        mov dx,0388
+        mov cx,35
+adlib_wait2:
+        in al,dx
+        loop adlib_wait2
+        pop cx
+        pop dx
+        pop ax
+        ret
+
+
+cms_write:                      ;writes value ah to register al
+        push dx
+        mov dx,cs:baseadr
+        inc dx
+        out dx,al
+        xchg ah,al
+        dec dx
+        out dx,al
+        xchg ah,al
+        pop dx
+        ret
+
+
+adlib_init:
+        cmp byte cs:adlib,0
+        jz ret
+        mov ax,06004
+        call adlib_writep
+        mov ax,08004
+        call adlib_writep
+        mov dx,0388
+        in al,dx
+        push ax
+        mov ax,0ff02
+        call adlib_writep
+        mov ax,02104
+        call adlib_writep
+        mov cx,200
+l1:     in al,dx
+        loop l1
+        push ax
+        mov ax,04
+        call adlib_writep
+        pop ax
+        and al,0e0
+        cmp al,0c0
+        pop ax
+        if nz jmp adlib_notok
+        and al,0e0
+        if nz jmp adlib_notok
+        mov byte cs:intsnd,0    ;disable internal speaker '128 sound
+        mov byte cs:s_oldctrl,0ff
+        mov ax,0
+l1:     push ax
+        call adlib_writep
+        pop ax
+        inc al
+        jnz l1
+        mov ax,02001
+        call adlib_writep        ;enable distorted waveforms
+        mov al,020
+        mov cx,6                ;three carriers and modulators
+l1:     push ax
+        mov ah,021              ;frequency multiple 1, normal sustain
+        call adlib_writep
+        pop ax
+        push ax
+        mov ah,1                ;distorted sine wave
+        add al,0c0
+        call adlib_writep
+        pop ax
+        push ax
+        mov ah,0ff              ;ff
+        add al,040
+        call adlib_writep       ;quick attack, no decay
+        pop ax
+        push ax
+        mov ah,00f
+        add al,060
+        call adlib_writep       ;(sustain: loud, release: quick)
+        pop ax
+        inc al
+        loop l1
+        mov al,0
+        mov cx,3                ;3 modulator/carrier operators
+l1:     push ax
+        mov ah,0
+        add al,0c0              ;F.M. synthesis, no feedback
+        call adlib_writep
+        pop ax
+        push ax
+        mov ah,010               ;Modulator total level about 40 db
+        add al,040
+        call adlib_writep
+        pop ax
+        inc al
+        loop l1
+        cmp byte cs:cmschips,0
+        jnz usecms
+        mov ax,02134            ;snare drum: normal envelope, multi=1
+        call adlib_writep
+        mov ax,0f074            ;quick attack, no decay
+        call adlib_writep
+        mov ax,0f94             ;(max sustain, quick release)
+        call adlib_writep
+        mov ax,028bd            ;turn on snare drum
+        call adlib_writep
+        call adlib_quiet
+        mov dx,adlib_msg
+        jmp >l1
+usecms:
+        mov ax,0                ;channel 0 amp 0
+        call cms_write
+        mov ax,014              ;disable tone all channels
+        call cms_write
+        mov ax,0115
+        call cms_write          ;disable noise all channels but channel 0
+        mov ax,0ff16
+        call cms_write          ;highest available noise frequency
+        mov ax,011c
+        call cms_write          ;sound enable
+        mov dx,adlib_msg
+        jmp >l1
+adlib_notok:
+        mov byte cs:adlib,0
+        mov dx,noadlib_msg
+l1:     push ds
+        push cs
+        pop ds
+        mov ah,9
+        int 021
+        pop ds
+        ret
+
+
+adlib_quiet:
+        cmp byte cs:intsnd,0
+        jnz int_quiet
+        cmp byte cs:adlib,0
+        jz ret
+;        mov ax,03f43           ;turn volume down
+;        call adlib_writep
+;        mov ax,03f44
+;        call adlib_writep
+;        mov ax,03f45
+;        call adlib_writep
+;        mov ax,03f54
+;        call adlib_writep
+        mov ax,0b0              ;but this is better: altogether silence channels
+        call adlib_writep
+        mov ax,0b1
+        call adlib_writep
+        mov ax,0b2
+        call adlib_writep
+        mov ax,0bd
+        call adlib_writep
+        cmp byte cs:cmschips,0
+        je ret
+        mov ax,0
+        call cms_write
+        ret
+int_quiet:
+        in al,061
+        and al,011111100xb
+        out 061,al
+        ret
+
+
+adlib_turnon:
+;        cmp byte cs:rommod,2           ; ***** HMc REM *****
+        cmp byte cs:rommod,3            ;48K  ***** HMc *****
+        jbe ret
+        cmp byte cs:silence,0
+        jnz ret
+        cmp byte cs:intsnd,0ff
+        jz turnon_int
+        cmp byte cs:adlib,0
+        jz ret
+        mov ax,028bd            ;turn on snare drum
+        call adlib_writep       ;regs 0b0-0b3 are set by out_128_s.. below
+turnon_int:
+        mov byte cs:[offset s_oldctrl],0ff
+        mov al,cs:lastfffd
+        push ax
+        mov bx,offset sstate
+        mov cx,14
+        mov cs:b[offset lastfffd],0
+        mov al,cs:[bx+7]
+        not al
+        mov cs:s_oldctrl,al
+adlib_outit:
+        push bx
+        mov ah,cs:[bx]
+        call far out_128_soundchip
+        call adlib_pause
+        pop bx
+        inc bx
+        inc byte cs:lastfffd
+        loop adlib_outit
+        pop ax
+        mov cs:lastfffd,al
+        ret
+
+
+
+queer2_ems:
+        push es
+        push ax
+        cmp byte cs:sambank,1   ;samrom 1 active?
+        jz q2_active
+        push cx
+        push dx
+        push si
+        push di
+        mov ax,04400            ;phys. page 0 (rom)
+        mov bx,2                ;samrom 1
+        mov dx,cs:emshandle
+        int 067
+        mov ax,cs:samseg
+        mov es,ax
+        xor si,si
+        xor di,di
+        mov cx,02000
+        cld
+        rep movsw
+        mov ax,04400
+        mov bl,cs:[offset ramstate]
+        xor bh,bh
+        int 067
+        pop di
+        pop si
+        pop dx
+        pop cx
+        mov byte cs:sambank,1
+q2_active:
+        mov ax,cs:samseg
+        mov es,ax
+        cmp si,04000
+        pop ax
+        ja $+3
+        es:
+        mov al,[si]
+        pop es
+        mov bx,dx
+        cmp bh,040
+        if ae mov [bx],al
+        xchg bx,si
+        inc bl
+        xchg bx,si
+        inc dh
+        jmp far emulate
+
+ldobhla_ems_norm:
+        test word es:emshandle
+        jz ldobhla_norm
+        push dx
+        push ax
+        mov dx,cs:emshandle
+        mov bl,cs:[offset ramstate+2]   ;4 or 6
+        xor bl,2                        ;other 32k bank
+        xor bh,bh
+        mov ax,04402
+        int 067
+        inc bl
+        mov ax,04403
+        int 067
+        pop ax
+        pop bx
+        cmp bh,040
+        if ae mov [bx],al
+        push bx
+        push ax
+        mov bl,cs:[offset ramstate+2]
+        xor bh,bh
+        mov ax,04402
+        int 067
+        inc bl
+        mov ax,04403
+        int 067
+        pop ax
+        pop dx
+        jmp far emulate
+ldobhla_norm:
+        MOV BX,DX
+        cmp BH,080
+        JB NORMAL_RAM
+        cmp es:b[offset ramstate+2],4          ;First bank paged in?
+        PUSH ES
+        PUSH AX
+        MOV AX,ES:romseg
+        if z add ah,08                          ;if so, go up by 32K
+        add ah,08                               ;step over 2 roms
+        MOV ES,AX                       ;real mode trick
+        POP AX
+        MOV ES:[BX],AL
+        POP ES
+        jmp far emulate
+NORMAL_RAM:
+        mov [bx],al                     ;no memp, but this opcode is only used by
+        jmp far emulate                 ;samram and its programmer can be trusted
+
+
+
+ldobahl_ems:
+        push dx
+        push ax
+        mov dx,cs:emshandle
+        mov bl,cs:[offset ramstate+2]   ;4 or 6
+        xor bl,2                        ;other 32k bank
+        xor bh,bh
+        mov ax,04402
+        int 067
+        inc bl
+        mov ax,04403
+        int 067
+        pop ax
+        pop bx
+        mov al,[bx]
+        push bx
+        push ax
+        mov bl,cs:[offset ramstate+2]
+        xor bh,bh
+        mov ax,04402
+        int 067
+        inc bl
+        mov ax,04403
+        int 067
+        pop ax
+        pop dx
+        jmp far emulate
+
+
+
+
+JOYSTICK_UPDATE:
+        push dx
+        push si
+        push di
+        xor bl,bl                       ;clear all directions
+        test byte cs:amsmouse,0ff
+        jz upd_no_amsmouse
+        cmp cs:rommod,2
+        if e jmp upd_no_msmouse       ;not upd_no_amsmouse !
+        cmp cs:rommod,3
+        if e jmp upd_no_msmouse
+        cmp cs:rommod,6
+        if ae jmp upd_no_msmouse      ;no ams mouse emul. in MGT or SamRam modes
+;ams stuff
+        mov ax,3
+        int 033                 ;get button status
+        mov al,0ff
+        test bx
+        if nz inc al
+        mov cs:amsdfvalue,al
+        mov ax,0b
+        int 033                 ;get mickeys
+        mov byte cs:amsdataa,0
+        mov byte cs:amsdatab,1
+        test cx
+        jns ams_posx
+        neg cx
+        mov byte cs:amsdataa,1
+ams_posx:
+        cmp cx,020
+        if a mov cl,020
+        mov cs:amscnta,cl
+        test dx
+        jns ams_posy
+        neg dx
+        mov byte cs:amsdatab,0
+ams_posy:
+        cmp dx,020
+        if a mov dl,020
+        mov cs:amscntb,dl
+        xor bl,bl
+        jmp upd_no_msmouse
+
+
+
+upd_no_amsmouse:
+        test byte cs:msmouse,0ff
+        if z jmp upd_no_msmouse
+
+onestep equ 8
+maxhold equ onestep*4
+
+        mov ax,3                ;get button status
+        int 033
+        test bx
+        mov bl,0
+        if nz or bl,16
+        mov ax,0b
+        int 033                 ;get mickeys
+
+        add cx,cx
+        je nosigncx
+        sbb ax,ax
+        if c neg cx
+        cmp al,cs:horizsgn
+        je nosigncx
+        shr cx,1
+        shr cx,1
+        cmp cx,maxhold
+        if a mov cx,maxhold
+        sub cs:horizadd,cx
+        mov cx,0
+        jae nosigncx
+        neg cs:horizadd
+        mov cs:horizsgn,al
+nosigncx:
+        add cx,cs:horizadd
+        cmp cx,maxhold
+        if a mov cx,maxhold
+        cmp cx,onestep
+        jb nostepcx
+        or bl,2
+        cmp byte cs:horizsgn,0
+        if ne xor bl,3
+        sub cx,onestep
+        cmp cx,onestep
+        if b xor cx,cx
+nostepcx:
+        mov cs:horizadd,cx
+
+        add dx,dx
+        je nosigndx
+        sbb ax,ax
+        if c neg dx
+        cmp al,cs:vertsgn
+        je nosigndx
+        shr dx,1
+        shr dx,1
+        cmp dx,maxhold
+        if a mov dx,maxhold
+        sub cs:vertadd,dx
+        mov dx,0
+        jae nosigndx
+        neg cs:vertadd
+        mov cs:vertsgn,al
+nosigndx:
+        add dx,cs:vertadd
+        cmp dx,maxhold
+        if a mov dx,maxhold
+        cmp dx,onestep
+        jb nostepdx
+        or bl,4
+        cmp byte cs:vertsgn,0
+        if ne xor bl,12
+        sub dx,onestep
+        cmp dx,onestep
+        if b xor dx,dx
+nostepdx:
+        mov cs:vertadd,dx
+
+        cmp cx,dx
+        ja morelr
+        add cx,cx
+        cmp cx,dx
+        if b and bl,0ff-3
+        jmp short upd_msmouse
+morelr: add dx,dx
+        cmp cx,dx
+        if a and bl,0ff-12
+upd_msmouse:                            ;just continue...   (>v3.02)
+upd_no_msmouse:
+        test byte cs:zandjoy,0ff
+        jz upd_no_zandbergen
+        mov dx,0201
+        in al,dx
+        out dx,al
+        xor al,16
+        and al,31
+        mov bh,al
+        shr bh,1
+        xor bh,al
+        test bh,1
+        if nz xor al,3
+        or bl,al                        ;include in direction byte
+        jmp j_upd_algemeen
+
+upd_no_zandbergen:
+        mov cx,cs:joytel
+        test cx
+        if z jmp j_upd_algemeen
+        push bx
+        call meetjoystick
+        in al,dx                        ;get button statuses
+        mov dx,bx                       ;save 2nd joystick value
+        pop bx                          ;retrieve BL
+        xor bh,bh                       ;clear 2nd joystick flag
+        test al,16
+        if z or bl,16
+        test al,64
+        if z or bh,16
+
+        mov ax,cs:joytel
+        sub ax,si
+        cmp ax,cs:joysimax
+        if ae or bl,2
+        cmp ax,cs:joysimin
+        if b or bl,1
+
+        mov ax,cs:joytel
+        sub ax,di
+        cmp ax,cs:joydimax
+        if ae or bl,4
+        cmp ax,cs:joydimin
+        if b or bl,8
+
+        mov ax,cs:joytel
+        sub ax,dx
+        cmp ax,cs:joybxmax
+        if ae or bh,2
+        cmp ax,cs:joybxmin
+        if b or bh,1
+
+        mov ax,cs:joytel
+        sub ax,bp
+        cmp ax,cs:joybpmax
+        if z or bh,4
+        cmp ax,cs:joybpmin
+        if a or bh,8
+
+        cmp byte cs:secondjoy,0ff       ;2nd joystick attached / to be used?
+        if ne jmp j_upd_algemeen
+
+;update second joystick status first
+
+        mov al,bh
+        xor al,cs:joyxy2
+        mov cs:joyxy2,bh
+        jz j_upd_algemeen
+        mov cl,0
+j_upd_loop2:
+        clc
+        rcr bh,1
+        sbb ah,ah
+        not ah
+        clc
+        rcr al,1
+        jnc j_zelfde2
+        push bx
+        push cx
+        xchg byte cs:break,ah
+        push ax
+        mov bl,cl
+        add bl,bl
+        xor bh,bh
+        mov ax,cs:w[offset sinclair1+bx]
+        call setkbit
+        pop ax
+        xchg byte cs:break,ah
+        pop cx
+        pop bx
+j_zelfde2:
+        inc cl
+        test al,al
+        jnz j_upd_loop2
+
+j_upd_algemeen:
+        mov al,bl
+        xor al,cs:joyxy
+        mov cs:joyxy,bl
+        jz j_upd_end
+        mov cl,0
+j_upd_loop:
+        clc
+        rcr bl,1
+        sbb ah,ah
+        not ah
+        clc
+        rcr al,1
+        jnc j_zelfde
+        push bx
+        push cx
+        xchg byte cs:break,ah
+        push ax
+        mov al,cl
+        call set_joystick
+        pop ax
+        xchg byte cs:break,ah
+        pop cx
+        pop bx
+j_zelfde:
+        inc cl
+        test al,al
+        jnz j_upd_loop
+        call matrix_error
+j_upd_end:
+        pop di
+        pop si
+        pop dx
+        ret
+
+
+meetjoystick:                   ;does !!!! touch bl
+        mov dx,0201
+        out dx,al
+        mov si,0
+        mov di,0
+        mov bx,0
+        mov bp,0
+        mov ah,15
+        cli
+j_get_pos:
+        in al,dx
+        not al
+        and al,ah
+        jz j_nochange
+        test al,1
+        jz j_nox1pos
+        mov si,cx               ;xpos joystick 1
+        and ah,15-1
+j_nox1pos:
+        test al,2
+        jz j_noy1pos
+        mov di,cx               ;ypos joystick 1
+        and ah,15-2
+j_noy1pos:
+        test al,4
+        jz j_nox2pos
+        mov bx,cx               ;xpos joystick 2
+        and ah,15-4
+j_nox2pos:
+        test al,8
+        jz j_nochange
+        mov bp,cx               ;ypos joystick 2
+        and ah,15-8
+j_nochange:
+        loop j_get_pos
+        sti
+        ret
+
+
+
+INITJOYSTICK:
+        mov word cs:joytel,0
+        cmp byte cs:zandjoy,0ff
+        jne ret                 ;Return als opties -kk of -kz gegeven zijn.
+        mov dx,0201
+        out dx,al
+        mov cx,0
+initjoypauze:
+        nop
+        nop
+        nop
+        nop
+        loop initjoypauze
+        in al,dx
+        and al,0e0
+        cmp al,060
+        jnz no_zandbergen       ;Geen Ruud Zandbergen joystick
+        mov byte cs:zandjoy,1
+        mov dx,zandjoymes
+        jmp print
+no_zandbergen:
+        mov byte cs:zandjoy,0
+        mov cx,43000            ;max value is multiplied by 1.5 somewhere
+        call meetjoystick
+        cmp si,0
+        if z jmp nojoystick
+        cmp di,0
+        if z jmp nojoystick
+        cmp si,43000
+        if z jmp nojoystick
+        cmp di,43000
+        if z jmp nojoystick
+
+        mov ax,43000
+        sub ax,si
+        push ax
+        shr ax,1
+        mov cs:joysimin,ax
+        pop si
+        add ax,si
+        mov cs:joysimax,ax
+        mov cs:joytel,ax
+
+        mov ax,43000
+        sub ax,di
+        push ax
+        shr ax,1
+        mov cs:joydimin,ax
+        pop si
+        add ax,si
+        mov cs:joydimax,ax
+        cmp ax,cs:joytel
+        if a mov cs:joytel,ax
+
+        cmp byte cs:secondjoy,0ff
+        je donotcheck
+        cmp byte cs:secondjoy,080
+        je docheck
+        jmp nosecondjoy
+
+docheck:
+        cmp bp,0
+        jz nosecondjoy
+        cmp bp,43000
+        jz nosecondjoy
+        cmp bx,0
+        jz nosecondjoy
+        cmp bx,43000
+        jz nosecondjoy
+        mov byte cs:secondjoy,0ff
+
+donotcheck:
+        mov ax,43000
+        sub ax,bx
+        push ax
+        shr ax,1
+        mov cs:joybxmin,ax
+        pop si
+        add ax,si
+        mov cs:joybxmax,ax
+        cmp ax,cs:joytel
+        if a mov cs:joytel,ax
+
+        mov ax,43000
+        sub ax,bp
+        push ax
+        shr ax,1
+        mov cs:joybpmin,ax
+        pop si
+        add ax,si
+        mov cs:joybpmax,ax
+        cmp ax,cs:joytel
+        if a mov cs:joytel,ax
+
+        mov dx,normjoymes
+        call print
+        mov dx,secondjoymes
+        jmp print
+
+nosecondjoy:
+        mov byte cs:secondjoy,0         ;there is no second joystick connected
+        mov dx,normjoymes
+        jmp print
+
+nojoystick:
+        mov cs:joytel,0
+        mov dx,nojoymes
+        jmp print
+
+
+;        cmp bx,ax
+;        if z jmp nojoystick
+;        cmp bp,ax
+;        if z jmp nojoystick
+;        cmp si,di
+;        if a mov si,di          ;don't look at joystick 2; may be disconnected
+;        cmp byte cs:secondjoy,080
+;        jne donotcheck          ;If no switches set, then see if 2nd joystick connected
+;        mov byte cs:secondjoy,0ff   ;set joystick2 = yes
+;        mov ax,43000
+;        sub ax,bx
+;        mov bx,ax
+;        mov ax,43000
+;        sub ax,si               ;middle value
+;        shr ax,1
+;        cmp ax,bx               ;1/2 should be smaller
+;        if a mov byte cs:secondjoy,0
+;        add ax,43000
+;        sub ax,si               ;1 1/2 times middle
+;        cmp ax,bx               ;should be larger
+;        if be mov byte cs:secondjoy,0
+;        mov ax,43000
+;        sub ax,bp
+;        mov bp,ax
+;        mov ax,43000
+;        sub ax,si               ;middle value
+;        shr ax,1
+;        cmp ax,bp               ;1/2 should be smaller
+;        if a mov byte cs:secondjoy,0
+;        add ax,43000
+;        sub ax,si               ;1 1/2 times middle
+;        cmp ax,bp               ;should be larger
+;        if be mov byte cs:secondjoy,0
+;        mov dx,secondjoymes
+;        cmp byte cs:secondjoy,0
+;        if e mov dx,nosecondjoymes
+;        call print
+;donotcheck:
+;        mov ax,43000
+;        sub ax,si
+
+
+
+newint13:                               ; ***** HMc *****
+        cmp ah,2
+        jnc newint13c
+;        cmp ah,2                        ; read sector? ***** HMc *****
+;        je Newint13C                    ; jump if it is ***** HMc *****
+;        cmp ah,3                        ; write sector? ***** HMc *****
+;        je Newint13C                    ; jump if it is ***** HMc *****
+;        cmp ah,4                        ; verify sector? ***** HMc *****
+;        je Newint13C                    ; jump if it is ***** HMc *****
+        jmp newint13Old                 ; jump to old routine
+
+newint13C:                              ; ***** HMc *****
+        push ax                         ; ***** HMc *****
+        push bx                         ; ***** HMc *****
+        push cx                         ; ***** HMc *****
+        push dx                         ; ***** HMc *****
+        push ds                         ; ***** HMc *****
+        mov ax,040                      ; ***** HMc *****
+        mov ds,ax                       ; ***** HMc *****
+        mov bx,090                      ; base address of media type ***** HMc *****
+        add bl,dl                       ; add drive number ***** HMc *****
+        test byte ptr [bx],010          ; has type been determined?
+        je SkipSet                      ; jump if not ***** HMc *****
+        mov al,byte ptr [bx]            ; get old value ***** HMc *****
+        mov byte ptr cs:[Olddiskvalue],al ; store old value ***** HMc *****
+        mov word ptr cs:[Olddiskaddress],bx ; store address ***** HMc *****
+        and byte ptr [bx],0df           ; reset double stepping ***** HMc *****
+        pop ds                          ; ***** HMc *****
+        pop dx                          ; ***** HMc *****
+        pop cx                          ; ***** HMc *****
+        pop bx                          ; ***** HMc *****
+        pop ax                          ; ***** HMc *****
+        pushf                           ; ***** HMc *****
+        call cs:dword ptr [Int13adr]    ; call old int 13 ***** HMc *****
+        pushf                           ; ***** HMc *****
+        push ds                         ; ***** HMc *****
+        push bx                         ; ***** HMc *****
+        push ax                         ; ***** HMc *****
+        mov bx,word ptr cs:[Olddiskaddress] ; get address ***** HMc *****
+        mov ax,040                      ; ***** HMc *****
+        mov ds,ax                       ; ***** HMc *****
+        mov al,byte ptr cs:[Olddiskvalue]  ; ***** HMc *****
+        mov byte ptr [bx],al            ; ***** HMc *****
+        pop ax                          ; ***** HMc *****
+        pop bx                          ; ***** HMc *****
+        pop ds                          ; ***** HMc *****
+        popf                            ; ***** HMc *****
+        retf 2                          ; ***** HMc *****
+
+SkipSet:                                ; ***** HMc *****
+        pop ds                          ; ***** HMc *****
+        pop dx                          ; ***** HMc *****
+        pop cx                          ; ***** HMc *****
+        pop bx                          ; ***** HMc *****
+        pop ax                          ; ***** HMc *****
+
+newint13old:                            ; ***** HMc *****
+        jmp cs:dword ptr [Int13adr]     ; ***** HMc *****
+
+
+;The following routines are not yet used: **********************************
+
+write2discipleram:                      ; ***** HMc *****
+        cmp byte es:discflg,0           ; DISCiPLE paged in?  ***** HMc *****
+        if e retf                       ; return if not  ***** HMc *****
+        cmp bx,04000                    ; ROM write?  ***** HMc *****
+        jc write2discipROM              ; jump if it was  ***** HMc *****
+
+write2discipleramOK:                    ; write is OK  ***** HMc *****
+        push ax                         ; store AX  ***** HMc *****
+        xor ax,ax                       ; set zero flag  ***** HMc *****
+        pop ax                          ; restore AX  ***** HMc *****
+retf_label:                             ; see ei_videoupdate (Gerton)
+        retf                            ; return  ***** HMc *****
+
+write2discipROM:                        ; ***** HMc *****
+        cmp bx,02000                    ; is it the RAM part? ***** HMc *****
+        jc write2discipleramOK          ; jump if it is  ***** HMc *****
+        push ax                         ; store AX  ***** HMc *****
+        mov ax,1                        ; ***** HMc *****
+        cmp ax,1                        ; reset zero flag  ***** HMc *****
+        pop ax                          ; restore AX  ***** HMc *****
+        retf                            ; return  ***** HMc *****
+
+
+testbp2:                        ; ***** HMc *****
+        test bp,0c000           ; RAM write?  ***** HMc *****
+        jz testbp2cont          ; <4000, jump for further checks  ***** HMc *****
+        stc                     ; Signal RAM
+        ret
+testbp2cont:
+        test bp,02000
+        je testbp2bot
+        cmp byte es:rompage2,0ff    ;0ff (ROM) -> nc; 0 (RAM) -> c
+        ret
+testbp2bot:
+        cmp byte es:rompage1,0ff
+        ret
+
+
+
+
+
+
+RESET_ALL:                      ;Reset 74ls259 chip of SamRam
+        PUSH CX
+        MOV cs:B[IN31TAB+2],0    ;ZET OUT 31,5 UIT
+        MOV CX,31
+        MOV BH,14
+RESET_259:                      ;RESET DE SOFTWARE-74 LS 259
+        PUSH BX
+        CALL far OUT_BC_far     ;DOE RESP. OUT 31,14; OUT 31,12 ETC.
+        POP BX
+        SUB BH,2
+        JNS RESET_259
+        and byte cs:hstate,31   ;reset bit 5
+        xor bh,bh
+        mov cx,07ffd
+        call far out_bc_far     ;out 7ffd,0
+        POP CX
+        RET
+
+
+
+
+
+
+
+install_blaster:
+        cmp byte cs:_blaster,0
+        je ret
+        mov al,1
+        mov dx,cs:[baseadr]
+        add dx,6            ;dsp_reset
+        out dx,al           ;reset
+        in al,dx
+        in al,dx
+        in al,dx
+        in al,dx
+        mov al,0
+        out dx,al
+        mov cx,100
+datawait:
+        mov dx,cs:[baseadr]
+        add dx,0e           ;DSP_DATA_AVAIL
+        in al,dx
+        add al,al
+        jc gotdata          ;a byte is waiting...
+        loop datawait
+noblaster:
+        mov dx,sb_err
+        jmp enderr
+gotdata:
+        mov dx,cs:[baseadr]
+        add dx,0a           ;DSP_READ_DATA
+        in al,dx
+        cmp al,0AAh         ;Is it the ID byte?
+        je YepSB            ;Found the ID byte
+        loop datawait
+        jmp noblaster
+YepSB:
+        mov dx,cs:[baseadr]
+        add dx,0c           ;DSP_WRITE_DATA and DSP_WRITE_STATUS
+waitforsb:
+        in al,dx
+        shl al,1
+        jc waitforsb        ;wait until ok to write
+        mov al,020          ;DIRECT_ADC (tell SB to sample a byte.  Will take some
+        out dx,al           ; time to complete)
+        mov ax,cs:inloop2   ;get timing value for soundblaster sample routine
+        mov cs:inloop,ax    ;move to standard timing variable
+        ret
+
+
+getsample0:                     ;version used in testing speed (see get_spd)
+        cmp byte cs:_blaster,0aa
+        je $                    ;never
+        mov dx,cs:baseadr0      ;0378-0e
+        add dl,0e
+        in al,dx
+        xor al,al
+        jne $                   ;never
+        mov al,cs:prev_in
+        shl al,1
+        ret
+
+
+getsample:                  ;reads sample from LPT or SoundBlaster port
+        xor al,al
+        ret
+
+
+
+get_cputype:
+        mov word cs:cputype,88       ;default
+        pushf
+        pushf
+        pop ax
+        and ah,0f               ;reset 12-15
+        push ax
+        popf
+        pushf
+        pop ax
+        and ah,0f0
+        cmp ah,0f0
+        je cpu_88
+        pushf
+        pop ax
+        or ah,0f0               ;set 12-15
+        push ax
+        popf
+        pushf
+        pop ax
+        and ah,0f0
+        je cpu_88               ;In fact, it's a 286
+        mov cs:cputype,386
+cpu_88: popf
+        ret
+
+
+
+
+check_amsinterr_far:                ;See RETI in ED.8
+        cmp byte cs:amsienablea,0
+        je interr_noamsa_0
+        cmp byte es:amsmodea,1
+        jne interr_noamsa_0
+        cmp byte es:amscnta,0
+        je interr_noamsa_0
+        dec byte es:amscnta
+        mov bl,es:amsiveca
+        jmp amsirupt
+interr_noamsa_0:
+        cmp byte es:amsienableb,0
+        je interr_noamsb_1
+        cmp byte es:amsmodeb,1
+        jne interr_noamsb_1
+        cmp byte es:amscntb,0
+        je interr_noamsb_1
+        dec byte es:amscntb
+        mov bl,es:amsivecb
+        jmp amsirupt
+interr_noamsb_1:
+        xor bl,bl
+        xchg es:ams38irupt,bl
+        cmp bl,0ff
+        jne normal_reti_1
+amsirupt:
+        mov es:w[offset iff],0
+        mov bh,es:ri
+        xchg ax,di
+        mov al,[bx]
+        mov ah,[bx+1]
+        xchg ax,di
+        mov bx,ds:[bp]
+        cmp b[bx],118            ;halt
+        if e inc ds:w[bp]        ;if, when one instruction had been exec.
+        xor bl,bl               ;instead of none after the RETI the interr
+        jmp far jxf11_label     ;would have triggered a HALT instruction,
+normal_reti_1:                  ;then step past this HALT now.
+        xor bl,bl
+        jmp far opc201
+
+
+
+
+outlog_far:                     ;Stack: AX/SI/stack_at_out_time. AH=value, BX=port
+        pop ax
+        push cx
+        mov cx,cs:tquarter      ;17472
+        sub cx,cs:_tstates      ;<=17472, counting down
+        cmp byte cs:outlogall,0
+        jne outlog_f_all
+        test bl,1
+        jne outlog_f_all
+        push ax
+        mov al,cs:newbor
+        xor al,ah
+        and al,24
+        pop ax
+        je outlog_f_nochange
+outlog_f_all:
+        call outlog_save5bytes
+outlog_f_nochange:
+        pop cx                  ;restore cx
+        pop si                  ;restore si
+        jmp far outlogdoout
+
+outlog_save5bytes_far:
+        call outlog_save5bytes
+        retf
+
+outlog_save5bytes:
+        cmp byte cs:_outlog,0
+        je ret
+        push es
+        push si
+        push ax
+        mov ax,cs:outlogbufseg
+        mov es,ax
+        mov si,cs:outlogpointer
+        pop ax
+        mov es:[si],cx
+        mov es:[si+2],bx
+        mov es:[si+4],ah
+        add si,5
+        mov cs:outlogpointer,si
+        cmp si,cs:outlogbuflen
+        if ae call far _outlog_flushbuf
+        pop si
+        pop es
+        ret
+
+_outlog_flushbuf:
+        push ax
+        push bx
+        push cx
+        push dx
+        push ds
+        mov ax,cs:outlogbufseg
+        mov ds,ax
+        xor dx,dx
+        mov ah,040
+        mov bx,cs:_outloghandle
+        mov cx,cs:outlogpointer
+        test bx
+        if ne int 021                 ;no error check here
+        mov word cs:outlogpointer,0
+        pop ds
+        pop dx
+        pop cx
+        pop bx
+        pop ax
+        retf
+
+
+
+startup ends
+

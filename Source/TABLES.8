@@ -1,0 +1,124 @@
+startup segment para public
+
+KEYBTAB1:
+        DB 0,0C0                        ;0
+        DB 00B,013,01B,023,02B          ;2
+        DB 02C,024,01C,014,00C          ;7
+        DB 0C1,0C2,0C3,0D3              ;12
+        DB 00A,012,01A,022,02A          ;16
+        DB 02D,025,01D,015,00D          ;21
+        DB 0,0                          ;26
+        DB 00E                          ;28
+        DB 017                          ;29
+        DB 009,011,019,021,029          ;30
+        DB 02E,026,01E,016              ;35
+        DB 0C4,0C5,0                    ;39
+        DB 008                          ;42
+        DB 0                            ;43
+        DB 010,018,020,028              ;44
+        DB 02F,027,01F                  ;48
+        DB 0C6,0C7,0C8                  ;51
+        DB 008                          ;54
+        DB 0C9                          ;55
+        DB 017,00F                      ;56
+        DB 0CA                          ;58
+        DB 0D4,0D5,0d6,0d7,0d8,0da      ;59
+        DB 0db,0dc,0dd,0d9              ;65
+        DB 0CB,0CC,000,0CD,000,0CE,0CF,0D3,0D0,0D1,000,0D2,000,0D3,0D3  ;69
+        db 0,0,0,0,0,0                                                  ;83 (53)
+
+_udef_joy_table:
+        dw 0100,'[',0200,'z',0400,'x',0800,'c',01000,'v'
+        dw 0101,'a',0201,'s',0401,'d',0801,'f',01001,'g'
+        dw 0102,'q',0202,'w',0402,'e',0802,'r',01002,'t'
+        dw 0103,'1',0203,'2',0403,'3',0803,'4',01003,'5'
+        dw 0104,'0',0204,'9',0404,'8',0804,'7',01004,'6'
+        dw 0105,'p',0205,'o',0405,'i',0805,'u',01005,'y'
+        dw 0106,'/',0206,'l',0406,'k',0806,'j',01006,'h'
+        dw 0107,'\',0207,']',0407,'m',0807,'n',01007,'b'
+
+startup ends
+startup segment word public
+
+XDCB_TABLE:
+        DW DDCB06_i,DDCB06_i,DDCB06_i,DDCB06_i,DDCB06_i,DDCB06_i,DDCB06,DDCB06_i
+        DW DDCB0E_i,DDCB0E_i,DDCB0E_i,DDCB0E_i,DDCB0E_i,DDCB0E_i,DDCB0E,DDCB0E_i
+        DW DDCB16_i,DDCB16_i,DDCB16_i,DDCB16_i,DDCB16_i,DDCB16_i,DDCB16,DDCB16_i
+        DW DDCB1E_i,DDCB1E_i,DDCB1E_i,DDCB1E_i,DDCB1E_i,DDCB1E_i,DDCB1E,DDCB1E_i
+        DW DDCB26_i,DDCB26_i,DDCB26_i,DDCB26_i,DDCB26_i,DDCB26_i,DDCB26,DDCB26_i
+        DW DDCB2E_i,DDCB2E_i,DDCB2E_i,DDCB2E_i,DDCB2E_i,DDCB2E_i,DDCB2E,DDCB2E_i
+        DW DDCB36_i,DDCB36_i,DDCB36_i,DDCB36_i,DDCB36_i,DDCB36_i,DDCB36,DDCB36_i
+        DW DDCB3E_i,DDCB3E_i,DDCB3E_i,DDCB3E_i,DDCB3E_i,DDCB3E_i,DDCB3E,DDCB3E_i
+        DW DDCB46_i,DDCB46_i,DDCB46_i,DDCB46_i,DDCB46_i,DDCB46_i,DDCB46,DDCB46_i
+        DW DDCB4E_i,DDCB4E_i,DDCB4E_i,DDCB4E_i,DDCB4E_i,DDCB4E_i,DDCB4E,DDCB4E_i
+        DW DDCB56_i,DDCB56_i,DDCB56_i,DDCB56_i,DDCB56_i,DDCB56_i,DDCB56,DDCB56_i
+        DW DDCB5E_i,DDCB5E_i,DDCB5E_i,DDCB5E_i,DDCB5E_i,DDCB5E_i,DDCB5E,DDCB5E_i
+        DW DDCB66_i,DDCB66_i,DDCB66_i,DDCB66_i,DDCB66_i,DDCB66_i,DDCB66,DDCB66_i
+        DW DDCB6E_i,DDCB6E_i,DDCB6E_i,DDCB6E_i,DDCB6E_i,DDCB6E_i,DDCB6E,DDCB6E_i
+        DW DDCB76_i,DDCB76_i,DDCB76_i,DDCB76_i,DDCB76_i,DDCB76_i,DDCB76,DDCB76_i
+        DW DDCB7E_i,DDCB7E_i,DDCB7E_i,DDCB7E_i,DDCB7E_i,DDCB7E_i,DDCB7E,DDCB7E_i
+        DW DDCB86_i,DDCB86_i,DDCB86_i,DDCB86_i,DDCB86_i,DDCB86_i,DDCB86,DDCB86_i
+        DW DDCB8E_i,DDCB8E_i,DDCB8E_i,DDCB8E_i,DDCB8E_i,DDCB8E_i,DDCB8E,DDCB8E_i
+        DW DDCB96_i,DDCB96_i,DDCB96_i,DDCB96_i,DDCB96_i,DDCB96_i,DDCB96,DDCB96_i
+        DW DDCB9E_i,DDCB9E_i,DDCB9E_i,DDCB9E_i,DDCB9E_i,DDCB9E_i,DDCB9E,DDCB9E_i
+        DW DDCBA6_i,DDCBA6_i,DDCBA6_i,DDCBA6_i,DDCBA6_i,DDCBA6_i,DDCBA6,DDCBA6_i
+        DW DDCBAE_i,DDCBAE_i,DDCBAE_i,DDCBAE_i,DDCBAE_i,DDCBAE_i,DDCBAE,DDCBAE_i
+        DW DDCBB6_i,DDCBB6_i,DDCBB6_i,DDCBB6_i,DDCBB6_i,DDCBB6_i,DDCBB6,DDCBB6_i
+        DW DDCBBE_i,DDCBBE_i,DDCBBE_i,DDCBBE_i,DDCBBE_i,DDCBBE_i,DDCBBE,DDCBBE_i
+        DW DDCBC6_i,DDCBC6_i,DDCBC6_i,DDCBC6_i,DDCBC6_i,DDCBC6_i,DDCBC6,DDCBC6_i
+        DW DDCBCE_i,DDCBCE_i,DDCBCE_i,DDCBCE_i,DDCBCE_i,DDCBCE_i,DDCBCE,DDCBCE_i
+        DW DDCBD6_i,DDCBD6_i,DDCBD6_i,DDCBD6_i,DDCBD6_i,DDCBD6_i,DDCBD6,DDCBD6_i
+        DW DDCBDE_i,DDCBDE_i,DDCBDE_i,DDCBDE_i,DDCBDE_i,DDCBDE_i,DDCBDE,DDCBDE_i
+        DW DDCBE6_i,DDCBE6_i,DDCBE6_i,DDCBE6_i,DDCBE6_i,DDCBE6_i,DDCBE6,DDCBE6_i
+        DW DDCBEE_i,DDCBEE_i,DDCBEE_i,DDCBEE_i,DDCBEE_i,DDCBEE_i,DDCBEE,DDCBEE_i
+        DW DDCBF6_i,DDCBF6_i,DDCBF6_i,DDCBF6_i,DDCBF6_i,DDCBF6_i,DDCBF6,DDCBF6_i
+        DW DDCBFE_i,DDCBFE_i,DDCBFE_i,DDCBFE_i,DDCBFE_i,DDCBFE_i,DDCBFE,DDCBFE_i
+
+
+ED_TABLE:
+        DW emulate,emulate,emulate,emulate,emulate,emulate,emulate,emulate
+        DW emulate,emulate,emulate,emulate,emulate,emulate,emulate,emulate
+        DW emulate,emulate,emulate,emulate,emulate,emulate,emulate,emulate
+        DW emulate,emulate,emulate,emulate,emulate,emulate,emulate,emulate
+        DW emulate,emulate,emulate,emulate,emulate,emulate,emulate,emulate
+        DW emulate,emulate,emulate,emulate,emulate,emulate,emulate,emulate
+        DW emulate,emulate,emulate,emulate,emulate,emulate,emulate,emulate
+        DW emulate,emulate,emulate,emulate,emulate,emulate,emulate,emulate
+        DW EDOP40,EDOP41,EDOP42,EDOP43,EDOP44,EDOP45,EDOP46,EDOP47
+        DW EDOP48,EDOP49,EDOP4A,EDOP4B,edop44,EDOP4D,edop46,EDOP4F
+        DW EDOP50,EDOP51,EDOP52,EDOP53,edop44,edop45,EDOP56,EDOP57
+        DW EDOP58,EDOP59,EDOP5A,EDOP5B,edop44,edop45,EDOP5E,EDOP5F
+        DW EDOP60,EDOP61,EDOP62,EDOP63,edop44,edop45,edop46,EDOP67
+        DW EDOP68,EDOP69,EDOP6A,EDOP6B,edop44,edop45,edop46,EDOP6F
+        DW edop70,edop71,EDOP72,EDOP73,edop44,edop45,edop56,emulate
+        DW EDOP78,EDOP79,EDOP7A,EDOP7B,edop44,edop45,edop5e,emulate
+        DW emulate,emulate,emulate,emulate,emulate,emulate,emulate,emulate
+        DW emulate,emulate,emulate,emulate,emulate,emulate,emulate,emulate
+        DW emulate,emulate,emulate,emulate,emulate,emulate,emulate,emulate
+        DW emulate,emulate,emulate,emulate,emulate,emulate,emulate,emulate
+        DW EDOPA0,EDOPA1,EDOPA2,EDOPA3,emulate,emulate,emulate,emulate
+        DW EDOPA8,EDOPA9,EDOPAA,EDOPAB,emulate,emulate,emulate,emulate
+        DW EDOPB0,EDOPB1,EDOPB2,EDOPB3,emulate,emulate,emulate,emulate
+        DW EDOPB8,EDOPB9,EDOPBA,EDOPBB,emulate,emulate,emulate,emulate
+        DW emulate,emulate,emulate,emulate,emulate,emulate,emulate,emulate
+        DW emulate,emulate,emulate,emulate,emulate,emulate,emulate,emulate
+        DW emulate,emulate,emulate,emulate,emulate,emulate,emulate,emulate
+        DW emulate,emulate,emulate,emulate,emulate,emulate,emulate,emulate
+        DW emulate,emulate,emulate,emulate,emulate,emulate,emulate,emulate
+        DW emulate,emulate,emulate,emulate,emulate,emulate,emulate,emulate
+        DW emulate,emulate,emulate,emulate,emulate,emulate,emulate,emulate
+        DW queer1,queer2,ldobahl,ldobhla,getbyte,sendbyte,ldromhla,end_spec
+
+
+;EDFF=NAAR DOS
+;EDFE=ROMPOKE HL,A
+;EDFD=LDIR ROMPOKE
+;EDFC=LDDR ROMPOKE
+;EDFB=RAMBANK LD HL,A
+;EDFA=RAMBANK LD A,HL
+;EDF9=LD A,NORMAL_ROM:(HL) \ LD (DE),A \ INC HL \ INC DE
+;EDF8=SCHAKEL 1E 1K IN VAN NORMAL_ROM, CALL NAAR (BYTE VOLGEND OP OPCODE)+0280,
+;     NA RETURN DOE NOGMAALS EDF8, EN ZET DAN DE 1K WEER TERUG.
+
+
+startup ends

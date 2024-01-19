@@ -1,0 +1,465 @@
+Sinclair ZX Spectrum Emulator 'Z80' v4.00  -  6/3/99  -  by G.A. Lunter
+
+
+
+Additions to the Spectrum Emulator, from the the first version that
+was released, version 1.20.    (*) = only available to registered users.
+Names between brackets are games that first indicated the presence of
+the corresponding bug in the emulator, or the person that spotted the bug.
+
+
+
+6/3/1999      Version 4.00 of Z80 and WinZ80 released
+
+
+              WinZ80:
+
+              First release.
+
+
+              Z80:
+
+              - TZX v1.12 file support.  Added switch -tz, modified switch
+                -td.  (TZX=general tape file format, mainly by Tomaz Kac).
+              - Added true VGA graphics mode; this mode works fine in
+                Windows' DOS boxes, and solves problems for several laptop
+                computers and incompatible video adapters.  This mode is
+                default in DOS boxes (even full-screen ones).  Switch -g
+                added (switch 'no sound' moved to -0g).
+              - Changed speed code; ran into bounds on 200 MHz 80686.
+                Switch -z changed slightly.  (Ian Lowndes)
+              - Better Issue2/Issue3 emulation (Using info from Technical
+                FAQ by Philip Kendall / Pera Putnik)
+              - Better AY soundchip emulation, using square waves if
+                possible.  (Thanks to Luca Bisti)  (Added switch -0o)
+              - "ACB" stereo for AY sound implemented (suggested by Luca
+                Bisti)  (Added switch -0w)
+              - Removed snow in VGA modes (solution by Wim Oudshoorn)
+          (*) - Disk drive is now reset to 720K DD when using Disciple/+D
+                (Brian Cavers)
+              - Pressing ENTER at empty line when saving snapshot pops
+                up previous name (Suggested by Christopher Heys)
+              - SLT level loading doesn't need extra memory anymore; used
+                to fail sometimes when no EMS memory was present.
+              - Included precise definition of R register field in Z80 file
+                format definition.
+              - Added information on XZX's and Warajevo's .Z80 format
+                extensions (Philip Kendall)
+              - Correctly handles new 'ECP' LPT cards (Martijn vd Heide)
+              - Bugfix: Saving a snap directly after loading it changed
+                border colour (Bernhard Lutz)
+              - Bugfix: Shuttle shock guy couldn't move (reads port #FEFC;
+                Lee Tonks)
+              - Bugfix: Z80 now sets border colour when loading .SNA files
+                (Philip Kendall)
+              - Bugfix: Z80 didn't open or read from read-only .TAP files
+                (Martin Jaros)
+              - Bugfix: Deleting blocks from .TAP file now also works
+                correctly if same file is used for both input and output.
+                (Martin Jaros)
+              - Bugfix: RS232 input redirection menu didn't work (Wojtek
+                Wasilewski)
+              - Bugfix: video routines slightly faster (Flashing
+                attributes were refreshed too often).
+              - Bugfix: Time is displayed correctly of long .VOC files (of
+                about 10 minutes). (Martin Jaros)
+              - Typo: -xs changed into -ts in z80.doc (Niccolo Rigacci)
+              - Bugfix: Small inconsistencies between Z80 / Winz80 /
+                Z80Dump / docs (timing, header bytes 60/61) fixed (Philip
+                Kendall)
+
+
+11/11/96        Version 3.05 released
+
+              - Disciple/+D Centronics printer bug fixed.
+              - Disciple COPY SCREEN$ bug fixed.
+              - RLD and RRD could change ROM (Soldier of Light; James McKay
+                and Lee Tonks aka Blood told me about this)
+              - RES/SET IX/IY could change ROM  (Red Scorpion; bug reported
+                by Robert Zmyslowicz)
+              - Z80 again works on all processors, including 8088/8086.
+              - ALT-F7 shortcut to playing .TAP files works more
+                intuitively, following suggestions by Einar Gattoni Saukas.
+              - Added switches -tx and -tp, to suppress tape info window
+                and to pause after each block respectively.  These setting
+                can be changed at runtime.  (Suggestion by Blood)
+              - Extended switch -d (double interrupt frequency) to allow
+                both higher and lower interrupt frequencies than 50 Hz.
+                (Suggested by Cristian Secara)
+              - Added switch -0sND to select physical drives for MGT drives
+                (Suggested by Einar Gattoni Saukas)
+              - Switch -ti now looks for .TAP file in both current and
+                default .TAP file directory.  (Einar Gattoni Saukas)
+              - Function keys now work when tape info window pops up.
+                (Einar Gattoni Saukas)
+              - The combination LD SP,#FFFF/RET and ../RST cc caused a
+                General Protection Violation.  (Robert Zmyslowicz)
+              - Bugfix: long OTIR to #FE in Hi Res Color mode crashed Z80
+                (Confuzion; Bernhard Lutz)
+              - Bugfix in OUT #FE routine when sound was turned off; caused
+                Z80 to run very slowly sometimes  (Christopher Heys)
+              - Floating bus emulation improved in HRC mode  (Ricochet; Lee
+                Tonks noticed the problem)
+              - Bug in filename-selection-by-typing-initials, introduced in
+                v3.04, fixed.  (Bernhard Lutz, Einar Gattoni Saukas)
+              - Z80 now runs under Windows 95 in DOS boxes. (v3.04 already
+                did, in fact, but this list didn't say so)
+              - Bugfix: Z80 sometimes 'compressed' 16K blocks into more
+                than 16K, and refused to load the resulting file.  Z80 file
+                format has been changed.  (Robert Zmyslowicz, Erik Kunze)
+              - Bugfix: IN to page Multiface rom/ram in or out corrupted A
+                register  (Genie 128; James McKay and Blood)
+         (*)  - Bugfix: Z80 didn't swallow read-only VOC files, and TAP2VOC
+                produced those for no reason.  (Einar Gattoni Saukas)
+         (*)  - Out2Voc of v3.04 registered distribution didn't work,
+                because wrong memory model was chosen.  (Wojtek Wasilewski)
+         (*)  - Bugfix: playing a .VOC file and then loading a .TAP file
+                caused Z80 to crash.  (Wojtek Wasilewski)
+         (*)  - Bugfix: loading a +D .Z80 snapshot with no PLUSDROM.BIN
+                file present now causes Z80 to select Disciple mode
+                automatically, instead of printing error message and quit.
+                (Robert Zmyslowicz)
+              - Bugfix: Level numbers were sometimes incorrectly appended
+                when forming name of .DAT file.  (Robert Zmyslowicz)
+              - Bugfix: When two snapshots of the same name existed, the
+                .SNA one was loaded, and never the poor .Z80 one.  (Blood)
+              - The AMX mouse was called AMS mouse everywhere.  (Erik Kunze)
+              - Some errors in the tech doc fixed.  (Einar Gattoni Saukas)
+              - Added list of Disciple/+D system variables to Z80.DOC.
+
+
+
+10/8/96         Version 3.04 released
+
+              - Supports .SLT 'Super Loader Trap' files with level data and
+                loading screens.  Added utility ADDDAT.
+              - Much better keyboard handling and speed measuring in DOS
+                boxes running under Windows (95)
+         (*)  - Added utility READSB to read .VOC sample files from
+                SoundBlaster compat. sound card, and digitally filter them.
+                This finally enables reliable loading via a SoundBlaster.
+         (*)  - Bugfix: Disciple snapshots don't overwrite old data anymore
+              - Needs 16K less memory: fast/full/minimal (default,-xt,-xu):
+                564K, 517K, 481K; uses 240K less base memory if Extended
+                Memory is present.  No support anymore for Extended
+                Hercules and Plantronics video modes.
+         (*)  - Switch -00 added, to suppress pause at intro screen
+              - Z80 now ejects paper from laserprinters when ZX Printing.
+                (switch -0f N)
+              - Added tech info about ZX Printer, AY-3-8912 sound chip, and
+                Spectrum 128 internals.  (Info on AY chip due to Alastair
+                Booker and Ian Collier.)
+         (*)  - VOC files are high-pass filtered when played back, to make
+                loading less sensitive to 50 Hz component.
+              - Support for 2nd analogue joystick as Sinclair 1 joystick
+                added.
+              - The emulator returns 'No ZX Printer attached' if the output
+                printer is not there or off-line; previously the emulator
+                hang on a COPY with no printer to print to. Switch -xj
+                added.  (Lords of Midnight, SuperSpy)
+              - Added -xy trace feature
+              - Added -0m opcode mapping feature, for use with (a future
+                version of) Leslie Styles' disassembler DSNA
+              - Switch -kx added, for custom remapping of keyboard.
+              - Addresses are entered as decimal numbers by default now;
+                hex can be used by prefixing the address with a # or $
+                sign.
+              - Added explanation of Break Points in documentation (section
+                2.21) (Douglas Paulley)
+              - Novell broadcasts are disabled (Damion Yates)
+              - Timer routine made faster.
+         (*)  - Bugfix: Disciple/+D track buffer bug fixed.
+              - Bugfix: SoundBlaster is properly turned off at exit
+              - Bugfix: RES/SET opcodes can't change ROM anymore (Catch23
+                and Batman, the Capped Crusade; thanks to Gerardo Oporto
+                Jorrin)
+              - Bugfix: CTRL-ENTER when loading snapshot now also keeps
+                part of hardware mode fixed.
+              - Opcode for loading levels is ED FB, not ED F6 as the
+                documentation said previously. (Russell Marks)
+              - Bugfix: Loading snapshot saved in +D hardware mode with no
+                PLUSDROM.BIN file present does not return Z80 to DOS
+                anymore.
+              - Bugfix: settings are read correctly from snapshot file
+                specified on command line.
+              - Bugfix: '128 I/O ports are decoded properly (Three Weeks in
+                Paradise 128; Tomaz Kac)
+
+
+
+29/12/94        Version 3.03 released
+
+         (*)  - OUT2VOC now also handles 128k soundchip output.
+         (*)  - TAP2VOC can now produce raw sample files.
+              - Bugfix: Mouse and analogue joystick work together and
+                properly. (Niccolo Rigacci)
+              - Improved Hi Resolution Color emulation; the emulator uses
+                different timings in 128K modes, and locks in on memory
+                pushes to synchronise.  Most programs that use HRC effects
+                work correctly now.
+              - Bugfix: Without EMS memory, Multiface 128 did not work.
+              - Small error fixed and explanation added in DOC about new
+                .Z80 file headers (Arnt Gulbrandsen).
+              - Added: Switch to turn off Hi Resolution Color emulation
+                completely; this saves another 40K over -xt.
+              - Added: Program counter tracing feature.
+              - Added: Information in documentation on Spectrum 128 video
+                timings, and interrupt timings.
+              - In 128 mode, out address 7FFD is decoded using only A15
+                (and low order byte), making at least one problem program
+                run. (Igor 'Iggy' Eged)
+
+
+
+3/11/94         Version 3.02 released
+
+              - Bugfix: Without EMS memory, a Spectrum error with IF1 on
+                locked the emulator or generated an 'IN 0 crash'.
+         (*)  - Bugfix: OUT2VOC did not work properly for long samples.
+
+
+
+28/10/94        Version 3.01 released
+
+              - Bugfix: The ZX Printer code for Epson printer was faulty.
+              - The phone number for B.G. Services in Z80.DOC was wrong.
+              - The emulator can now log Z80 OUTs to any I/O port in a .OUT
+                file, with timing information.
+         (*)  - Added utility (OUT2VOC) to translate .OUT log files into
+                .VOC sound sample files, for recording music and SAVEing
+                directly to a .VOC file.
+              - Added a new section to the documentation about the Disciple
+                and +D interfaces.
+              - Added section about the OUT2VOC utility.
+
+
+
+20/10/94        Version 3.00 released
+
+         (*)  - Disciple and Plus D disk interface emulation
+              - ZX Printer support, for Epson and HP Laserjet compatibles
+              - Emulation of hi-resolution color and border effects, using
+                exact timing.
+              - Multiface 128 emulation; useful to load M128 snaps without
+                corrupting the screen
+              - Mouse support, controlling either Spectrum joysticks or the
+                AMX Mouse interface (supported by e.g. Art Studio)
+              - A number of improvements and bugfixes of the Z80 processor
+                emulation code, solving several problems with turbo
+                loaders, most notably Ocean's.
+              - All instructions emulated, including unofficial DDCB and
+                FDCB ones, and all unofficial ED instructions.  Most
+                unofficial flags emulated.
+              - User defined joystick support
+         (*)  - VOC file support - read programs stored in sound sample files
+         (*)  - Emulator can read in real mode from SoundBlaster port
+              - Faster code using 386+ instructions for VGA mode
+              - Switch to remove info window when saving or loading
+              - Emulator can set breakpoints at any address, invisible to
+                the running program.
+              - Can save any part of Spectrum memory to disk, and load it
+                back in memory.
+         (*)  - Utility to read a sound sample from the standard LPT tape
+                interface, or the SoundBlaster, in a .VOC file
+         (*)  - Utility to convert .TAP files to .VOC files
+              - One-key joystick mode change, with ALT F4.
+              - Improved emulation of 'floating bus' (try Arkanoid)
+         (*)  - Bugfix Z802TAP; sometimes blocks got corrupted.
+              - Bugfix: Digital Zandbergen joystick didn't work.
+              - Multi-level support, in the same way as implemented in XZX
+                version 0.5.2
+              - Bugfix: MOVE from cartridge to another cartridge didn't
+                work, due to buffering problems. (Martin Smith)
+              - Bugfix: Several problems with the keyboard when running
+                under Windows are solved.
+              - Bugfix: R register doesn't change when going to main menu.
+              - Better sound quality, and no border interference anymore in
+                Real Mode when playing music.
+
+
+
+20/5/93         Version 2.01a released (registered users only)
+
+         (*)  - Fixed bugs in DISCiPLE disk read utility, and added option
+                to copy all files at once.
+              - Fixed typing error in Z80.EXE
+              - Fixed small errors in Z80FAQ.DOC
+
+
+
+3/5/93          Version 2.01 released.
+
+              - Added LaTeX and PostScript doc, by Lars K\"oller,
+              - Added Windows icon
+              - Added -xb switch (black and white VGA)
+              - Added remark about Czech registration to doc
+              - Added various other things to doc
+              - Fixed bug in (X-)Hercules border dithering
+
+
+
+16/4/93         Version 2.00 released.
+
+              - Z80 now supports the Spectrum 128, including '128 sound
+                through PC speaker or AdLib compatible sound card,
+              - Dutch documentation rewritten in English,
+              - Much better tape support, with tape files on disk, support
+                of headerless files and more difficult formats, easy access
+                to programs using LOAD "name", multiple files in a single
+                tape file, automatic mirroring of loaded blocks to tape
+                files,
+              - Microdrive support, 8 microdrives with cartridge-files
+                holding up to 126K of data, low-level I/O compatibility,
+              - VGA support, fast screen update and accurate colours
+                including bright,
+              - Z80 emulation nearly perfect, including emulation of
+                unofficial flags and undocumented features. Timing of
+                individual instructions is made much more accurate on fast
+                computers, while maintaining maximum possible speed on slow
+                ones,
+              - Spectrum keyboard layout help-screen under ALT-F1,
+         (*)  - Disciple/+D disk read utility can translate 48K and 128K
+                snapshots to .Z80 files, and screen snapshots and normal
+                files to .TAP files. It will now also read 5.25'' (720K
+                80 track double density) disks, and some bugs have been
+                fixed,
+              - Z80 now reads a .INI file at startup for default settings,
+              - Changing the hardware (SamRam, Spectrum 128) now possible
+                on-the-fly,
+              - The R register and LDIR emulation flags are saved in .Z80
+                snapshots,
+         (*)  - The emulation speed slowdown is now accurate from 8 MHz PC's
+                to the fastest available 486 machines. The emulation speed
+                can be brought back to 7%,
+         (*)  - Source files now include source of SamRam software,
+              - Support of AZERTY keyboards,
+              - The emulator can now run under Windows,
+              - Emulator can use other default 16K rom (switch -xr),
+              - The program uses EMS if available, for fast bank switching,
+         (*)  - CONVERT utility can now also convert a screen to a .PCX file,
+         (*)  - CONVZ80 now also supports the .PRG and tape files of SpecEm
+                (Kevin J. Phair) and tape files of ZX (Rindt and Brukner),
+         (*)  - New utility: Z802TAP, to convert a .Z80 snapshot to a .TAP
+                tap file,
+         (*)  - New utility: TAP2TAPE, to write a .TAP file back to tape,
+              - Fixed CGA colours bug,
+              - Fixed CTRL-BREAK bug,
+              - Fixed several other bugs, and
+              - a nice new intro screen.
+
+
+
+14/8/92         Version 1.45 released.
+
+              - Z80 emulator is now about 5% faster. Arnt Gulbrandsen,
+                the author of JPP, pointed out to me that I was clearing
+                the BL register too often.
+              - The analogue joystick now really works
+         (*)  - SAVEing programs to tape now really works (if you're a
+                registered user)
+              - You can now load .SNA files (commonly used snapshot format)
+                directly into the emulator, without having to convert them
+                with ConvZ80.
+              - The Interface-I RS232 channel can now also be attached to
+                COM3 and COM4.
+         (*)  - ConvZ80 now also supports the .SP format used by a Spectrum
+                emulator called 'SPECTRUM', written by Pedro Gimeno.
+              - A capacitor in DIAGRAMS.Z80 had the wrong value (17-8-92)
+              - .SNA files that were loaded were not properly closed,
+                resulting in a FILE NOT FOUND error. (17-8-92)
+
+
+
+27/7/92         Version 1.41 released. The 1.40 version of Z80.EXE was
+                packed with COMPACK (sort of PKLITE), which was bugged:
+                it didn't run on some '386s and '486s. This version isn't
+                packed anymore.
+
+
+
+16/7/92         Version 1.40 released, Shareware and for registered
+                users.
+
+         (*)  - Full tape support! A program DIAGRAMS.Z80 is supplied,
+                that consists of two diagrams of tape-adapters for PC's,
+                and a test-program useful for calibration of the
+                adapters.
+         (*)  - A utility to read DISCiPLE floppies.
+              - The analogue IBM joystick and a special interface for
+                digital (Spectrum) joysticks are supported. In the
+                documentation file is a diagram for the digital joystick
+                interface.
+              - A more extensive manual, and a summary for English-
+                speaking users.
+              - Speed measurement of the Z80 emulator is more accurate.
+                (V1.20 overestimated the speed.)
+              - Function keys F1-F7 and F10 are now used.
+              - The Emulator can run in 'Real'-mode, for better sound
+                and for tape (speed-)load and save.
+              - R register emulation is now perfect, so that protected
+                games (e.g. lenslock games) can be loaded.
+              - Video routines are faster.
+              - Several bugfixes concerning writes in ROM. (Strong Man)
+              - The settings of Issue 2 emulation, Double Interrupt
+                frequency, Video synchronisation mode and joystick are
+                stored in .Z80 files.
+
+
+
+6/11/91         Version 1.30, for registered users only:
+
+              - It is now much easier to choose a file from the main
+                menu: the cursor keys, PgUp and PgDn can be used to
+                browse through the list of files, and letter-keys make
+                the bar jump to the first file that starts with that
+                letter. The files are now alphabetically ordered.
+              - Sinclair joystick 1 added (keys 1-5)
+              - If a path is entered at the command line, the Emulator
+                automatically jumps to the main menu, option 'load
+                program', and changes to the specified directory.
+              - If a file is attached to the RS232 in- or output
+                channel, the read- or write-position is shown (main
+                menu, options I and O)
+              - Switches -yl and -yh are added, for Low and High video
+                synchronisation. With these switches, the flickering of
+                sprites of some games can be reduced. (Ghost 'n Goblins,
+                Uridium)
+              - Bugfix: DOS-clock ran too fast in version 1.25
+              - Bugfix: On AT's the Emulator crashed if Spectrum programs
+                used interrupt mode 2 while the I register was 255.
+                (Full Throttle)
+              - Unofficial flags are now emulated better. (Ghost'n Goblins)
+         (*)  - Extra utility CONVZ80, converts .Z80 files in .SP and
+                .SNA files, the snapshot formats of the Spanish Spectrum
+                emulator VGASPEC and the Norwegian Spectrum emulator JPP
+                respectively, and vice versa.
+         (*)  - Utility Z80DUMP; displays the header of .Z80 files.
+
+
+
+4/10/91         Version 1.25, for registered users only:
+
+              - Bugfix of instructions CB30 to CB37 (Bounder)
+              - 50 Hz interrupt and video update run 180 degrees out of
+                phase (BC Quest for Tires)
+              - SLA, SRA, SRL sped up.
+         (*)  - Switch -z added: the Emulator now can be slowed down to
+                about a factor 4.
+              - Bugfix sound: some computers only produced sound after a
+                OUT 31,13.
+              - Switch -2 added for Issue-2 emulation (Spinads)
+              - Bugfix GETRS: now reading from COM2 works, and an
+                on-screen counter shows the progress.
+         (*)  - CONVERT extended: GIF-files can be made directly from
+                .Z80 files
+
+
+
+30/7/91         Version 1.20 released.  Eerste, geheel Nederlandse versie.
+
+
+
+11/11/88        First line of code written.
+
+
+
