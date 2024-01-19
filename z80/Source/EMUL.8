@@ -1,0 +1,2736 @@
+jxtable segment byte public
+        org 0
+jx_table:
+jxtable ends
+
+
+testoverf macro
+        ##if !(($ - emulate -02c) and 080)
+        This will make A86 generate an error message
+        ##endif
+#em
+
+testoverflow macro
+;##if !(($ - edop4a + 0b7) and 080)
+##if !(($ - DDCB06 + 0b7) and 080)
+        This will give an error message
+##endif
+#em
+
+
+
+EMULATOR SEGMENT BYTE PUBLIC
+
+
+;Emul: Offset 0
+;Cb: Offset 02D
+;DD: Offset 04D
+;FD: Offset 081
+;DDFD: Offset 0B7
+;ED: Offset 0B7
+
+
+jx MACRO
+        XOR BL,BL
+        putjxlabel #1
+        MOV BH,[DI]
+        JMP BX
+        nop
+        nop
+        nop
+        nop
+        nop
+#EM
+
+jx_nolabel macro
+        xor bl,bl
+        mov bh,[di]
+        jmp bx
+        nop
+        nop
+        nop
+        nop
+        nop
+#em
+
+jxF MACRO
+        ##IF !USEjx
+                putjxlabel #1
+                MOV BH,[DI]
+                JMP BX
+                nop
+                nop
+                nop
+                nop
+                nop
+        ##ELSE
+                jx #1
+        ##ENDIF
+#EM
+
+putjxlabel macro
+p9:
+jxtable segment byte public
+        dw p9
+        db #1 and 0ff
+emulator segment byte public
+#em
+
+
+flags   equ 0
+
+
+flag macro
+        ##if flags
+        mov es:temp_f,#1
+        ##endif
+#em
+
+
+memp macro
+        ##if '#1'='BX'
+                cmp bh,040
+                jae >m2
+                call test#1             ; ***** HMc *****
+                jnc >m1                 ; ***** HMc *****
+        ##else
+                cmp #1,04000
+                jae >m2
+                call test#1             ; ***** HMc *****
+                jnc >m1                 ; ***** HMc *****
+        ##endif
+m2:                                     ; ***** HMc *****
+        ##if '#1'='BP'
+                ds:
+        ##endif
+        mov [#1],#2
+m1:
+#em
+
+
+;MACRO'S VOOR DE OVERFLOW-FLAG, EN HET ZETTEN V.D. ADD/SUBSTRACT FLAG
+
+OVA     MACRO
+        JO >M3
+        AND AH,011111001XB
+        ##IF '#1' EQ 'KR'
+                JMP >M2
+        M3:     AND AH,011111001XB
+                OR AH,4+028
+        M2:
+        ##ELSE
+                ##IF '#1' EQ 'IC'
+                        INC DI
+                ##ENDIF
+                ##IF '#1' EQ 'jx'
+                        jx #l
+                ##ELSE
+                        jxF #l
+                ##ENDIF
+        M3:     AND AH,011111001XB
+                OR AH,4+028
+                ##IF '#1' EQ 'IC'
+                        INC DI
+                ##ENDIF
+        ##ENDIF
+#EM
+
+OVS     MACRO
+        JNO >M3
+        OR AH,6+028
+        ##IF '#1' EQ 'KR'
+                JMP >M2
+        M3:     AND AH,011111011XB
+                OR AH,2+028
+        M2:
+        ##ELSE
+                ##IF '#1' EQ 'IC'
+                        INC DI
+                ##ENDIF
+                ##IF '#1' EQ 'jx'
+                        jx #l
+                ##ELSE
+                        jxF #l
+                ##ENDIF
+        M3:     AND AH,011111011XB
+                OR AH,2+028
+                ##IF '#1' EQ 'IC'
+                        INC DI
+                ##ENDIF
+        ##ENDIF
+#EM
+
+
+
+
+
+;************************************
+
+;MACRO VOOR JUMP/CALL/RET
+
+
+Z80R MACRO
+        INC BP
+        je >r1
+        MOV DI,DS:[BP-1]
+r0:     INC BP
+        jxF 11                  ;RET CC and condition true take 11 T cycles
+r1:     mov bl,ds:[bp-1]
+        mov bh,ds:[bp]
+        mov di,bx
+        xor bl,bl
+        jmp r0
+#EM
+
+
+Z80J MACRO
+        MOV DI,[DI+1]
+        jxF 10
+#EM
+
+
+
+        ORG 0
+OPC0:   INC DI                  ;NOP
+EMULATE:
+        jx 4
+
+        testoverf
+        ORG (1 SHL 8)
+        INC DI
+        MOV CX,[DI]             ;LD BC,NN
+        INC DI
+        INC DI
+        jxF 10
+
+        testoverf
+        ORG (2 SHL 8)
+        INC DI
+        MOV BX,CX               ;LD (BC),A
+        MEMP BX,AL
+        jx 7
+
+        testoverf
+        ORG (3 SHL 8)
+        INC DI
+        INC CX                  ;INC BC
+        jxF 6
+
+        testoverf
+        ORG (4 SHL 8)
+        INC DI
+        SAHF
+        INC CH                  ;INC B
+        LAHF
+        OVA 4
+        jxF 4
+
+        testoverf
+        ORG (5 SHL 8)
+        INC DI
+        SAHF
+        DEC CH                  ;DEC B
+        LAHF
+        OVS 4
+        jxF 4
+
+        testoverf
+        ORG (6 SHL 8)
+        INC DI
+        MOV CH,[DI]             ;LD B,N
+        INC DI
+        jxF 7
+
+        testoverf
+        ORG (7 SHL 8)
+        INC DI
+        SAHF
+        ROL AL,1                ;RLCA
+        LAHF
+        jxF 4
+
+        testoverf
+        ORG (8 SHL 8)
+        INC DI
+        XCHG AX,ES:RAFA         ;EX AF,AF'
+        mov bh,es:temp_f
+        xchg bh,es:temp_fa
+        mov es:temp_f,bh
+        jxF 4
+
+        testoverf
+        ORG (9 SHL 8)
+        INC DI
+        and ah,0fc
+        ADD DX,CX               ;ADD HL,BC
+        adc ah,0
+        xor ah,dh
+        and ah,0d7
+        xor ah,dh
+        mov es:temp_f,ah
+jxf11_label:
+        jxF 11
+
+
+        testoverf
+        ORG (10 SHL 8)
+        INC DI
+        MOV BX,CX               ;LD A,(BC)
+        MOV AL,[BX]
+        jx 7
+
+        testoverf
+        ORG (11 SHL 8)
+        INC DI
+        DEC CX                  ;DEC BC
+        jxF 6
+
+        testoverf
+        ORG (12 SHL 8)
+        INC DI
+        SAHF
+        INC CL                  ;INC C
+        LAHF
+        OVA 4
+        jxF 4
+
+        testoverf
+        ORG (13 SHL 8)
+        INC DI
+        SAHF
+        DEC CL                  ;DEC C
+        LAHF
+        OVS 4
+        jxF 4
+
+        testoverf
+        ORG (14 SHL 8)
+        INC DI
+        MOV CL,[DI]             ;LD C,N
+        INC DI
+        jxF 7
+
+        testoverf
+        ORG (15 SHL 8)
+        INC DI
+        SAHF
+        ROR AL,1                ;RRCA
+        LAHF
+        jxF 4
+
+        testoverf
+        ORG (16 SHL 8)
+        INC DI
+        DEC CH                  ;DJNZ E
+        JZ >L1                  ;wordt geinstalleerd door silence_inst
+        mov bl,[di]             ;Modification by Steve O'Brien
+        rcl bl,1
+        sbb bh,bh
+        rcr bl,1
+        add di,bx
+        INC DI
+        jx 13
+l1:     inc di
+        jx 8
+
+        testoverf
+        ORG (17 SHL 8)
+        INC DI
+        MOV SI,[DI]             ;LD DE,NN
+        INC DI
+        INC DI
+        jxF 10
+
+        testoverf
+        ORG (18 SHL 8)
+        INC DI                  ;LD (DE),A
+        MEMP SI,AL
+        jxF 7
+
+        testoverf
+        ORG (19 SHL 8)
+        INC DI
+        INC SI                  ;INC DE
+        jxF 6
+
+        testoverf
+        ORG (20 SHL 8)
+        INC DI
+        SAHF
+        XCHG BX,SI
+        INC BH                  ;INC D
+        XCHG BX,SI
+        LAHF
+        OVA 4
+        jxF 4
+
+        testoverf
+        ORG (21 SHL 8)
+        INC DI
+        SAHF
+        XCHG BX,SI
+        DEC BH                  ;DEC D
+        XCHG BX,SI
+        LAHF
+        OVS 4
+        jxF 4
+
+
+
+        testoverf
+        ORG (22 SHL 8)
+        INC DI
+        XCHG DX,SI              ;LD D,N
+        MOV DH,[DI]
+        XCHG DX,SI
+        INC DI
+        jxF 7
+
+
+
+        testoverf
+        ORG (23 SHL 8)
+        INC DI
+        SAHF
+        RCL AL,1                ;RLA
+        LAHF
+        jxF 4
+
+
+
+        testoverf
+        ORG (24 SHL 8)
+        INC DI                  ;jr e
+        mov bl,[di]
+        rol bl,1
+        sbb bh,bh
+        ror bx,1
+        add di,bx
+        inc di
+        jx 12
+
+
+
+
+        testoverf
+        ORG (25 SHL 8)
+        INC DI
+        AND AH,0fc
+        ADD DX,SI               ;ADD HL,DE
+        adc ah,0
+        xor ah,dh
+        and ah,0d7
+        xor ah,dh
+        mov es:temp_f,ah
+        jxF 11
+
+
+
+
+        testoverf
+        ORG (26 SHL 8)
+        INC DI                  ;LD A,(DE)
+        MOV AL,[SI]
+        jxF 7
+
+
+
+        testoverf
+        ORG (27 SHL 8)
+        INC DI
+        DEC SI                  ;DEC DE
+        jxF 6
+
+
+
+        testoverf
+        ORG (28 SHL 8)
+        INC DI
+        SAHF
+        XCHG BX,SI
+        INC BL                  ;INC E
+        XCHG BX,SI
+        LAHF
+        OVA 4
+        jxF 4
+
+
+
+        testoverf
+        ORG (29 SHL 8)
+        INC DI
+        SAHF
+        XCHG BX,SI
+        DEC BL                  ;DEC E
+        XCHG BX,SI
+        LAHF
+        OVS 4
+        jxF 4
+
+
+
+        testoverf
+        ORG (30 SHL 8)
+        INC DI
+        XCHG BX,SI              ;LD E,N
+        MOV BL,[DI]
+        XCHG BX,SI
+        INC DI
+        jxF 7
+
+
+
+        testoverf
+        ORG (31 SHL 8)
+        INC DI
+        SAHF
+        RCR AL,1                ;RRA
+        LAHF
+        jxF 4
+
+
+
+
+        testoverf
+        ORG (32 SHL 8)
+        INC DI
+        SAHF                    ;JR NZ,E
+        JNZ >L0
+        INC DI
+        jxF 7
+l0:     mov bl,[di]
+        rol bl,1
+        sbb bh,bh
+        ror bx,1
+        add di,bx
+        inc di
+        jx 12
+
+
+
+        testoverf
+        ORG (33 SHL 8)
+        INC DI
+        MOV DX,[DI]             ;LD HL,NN
+        INC DI
+        INC DI
+        jxF 10
+
+
+
+        testoverf
+        ORG (34 SHL 8)
+        INC DI
+        MOV BX,[DI]             ;LD (NN),HL
+        MEMP BX,DX
+        INC DI
+        INC DI
+        jx 16
+
+
+
+
+        testoverf
+        ORG (35 SHL 8)
+        INC DI
+        INC DX                  ;INC HL
+        jxF 6
+
+
+
+
+        testoverf
+        ORG (36 SHL 8)
+        INC DI
+        SAHF
+        INC DH                  ;INC H
+        LAHF
+        OVA 4
+        jxF 4
+
+
+
+
+
+        testoverf
+        ORG (37 SHL 8)
+        INC DI
+        SAHF
+        DEC DH                  ;DEC H
+        LAHF
+        OVS 4
+        jxF 4
+
+
+
+        testoverf
+        ORG (38 SHL 8)
+        INC DI
+        MOV DH,[DI]             ;LD H,N
+        INC DI
+        jxF 7
+
+
+        testoverf
+        ORG (39 SHL 8)
+        INC DI
+        TEST AH,2               ;DAA
+        JNZ DAA_SUB
+        SAHF
+        DAA
+        LAHF
+        jxF 4
+DAA_SUB:
+        SAHF
+        DAS
+        LAHF
+        jxF 4
+
+
+
+        testoverf
+        ORG (40 SHL 8)
+        INC DI
+        SAHF                    ;JR Z,E
+        JZ >L0
+        INC DI
+        jxF 7
+l0:     mov bl,[di]
+        rol bl,1
+        sbb bh,bh
+        ror bx,1
+        add di,bx
+        inc di
+        jx 12
+
+
+
+        testoverf
+        ORG (41 SHL 8)
+        INC DI
+        AND AH,0fc
+        ADD DX,DX               ;ADD HL,HL
+        adc ah,0
+        xor ah,dh
+        and ah,0d7
+        xor ah,dh
+        mov es:temp_f,ah
+        jxF 11
+
+
+
+        testoverf
+        ORG (42 SHL 8)
+        INC DI
+        MOV BX,[DI]             ;LD HL,(NN)
+        MOV DX,[BX]             ;DEZE INSTRUCTIE STAAT O.A. OP ADRES 8.
+        INC DI
+        INC DI
+        CMP DI,11
+        IF Z JMP PAGEIF1        ; page IF1 or DISCiPLE ***** HMc *****
+        jx 16
+
+
+        testoverf
+        ORG (43 SHL 8)
+        INC DI
+        DEC DX                  ;DEC HL
+        jxF 6
+
+
+
+        testoverf
+        ORG (44 SHL 8)
+        INC DI
+        SAHF
+        INC DL                  ;INC L
+        LAHF
+        OVA 4
+        jxF 4
+
+
+
+        testoverf
+        ORG (45 SHL 8)
+        INC DI
+        SAHF
+        DEC DL                  ;DEC L
+        LAHF
+        OVS 4
+        jxF 4
+
+
+
+        testoverf
+        ORG (46 SHL 8)
+        INC DI
+        MOV DL,[DI]             ;LD L,N
+        INC DI
+        cmp di,0290             ; At KEY_SCAN in ROM? (028e)
+        je page_disciple
+dontpage_disciple:
+        jxF 7
+page_disciple:
+        cmp byte es:disc_on,0
+        je dontpage_disciple
+        cmp byte es:discflg,0
+        jne dontpage_disciple
+        jmp pagediscchk
+
+
+
+        testoverf
+        ORG (47 SHL 8)
+        INC DI
+        NOT AL                  ;CPL
+        OR AH,012
+        jxF 4
+
+pagediscchk:                     ; ***** HMc *****
+        cmp byte es:_disctype,16 ; ***** HMc *****
+        jnc dontpage_disciple2   ; ***** HMc *****
+        jmp pagedisc             ; ***** HMc *****
+dontpage_disciple2:              ; ***** HMc *****
+        jxf 7                    ; ***** HMc *****
+
+
+
+        testoverf
+        ORG (48 SHL 8)
+        INC DI
+        SAHF
+        JAE >L0                 ;JR NC,E
+        INC DI
+        jxF 7
+l0:     mov bl,[di]
+        rol bl,1
+        sbb bh,bh
+        ror bx,1
+        add di,bx
+        inc di
+        jx 12
+
+
+        testoverf
+        ORG (49 SHL 8)
+        INC DI
+        MOV BP,[DI]             ;LD SP,NN
+        INC DI
+        INC DI
+        jxF 10
+
+
+
+        testoverf
+        ORG (50 SHL 8)
+        INC DI
+        MOV BX,[DI]             ;LD (NN),A
+        MEMP BX,AL
+        INC DI
+        INC DI
+        jx 13
+
+        testoverf
+        ORG (51 SHL 8)
+        INC DI
+        INC BP                  ;INC SP
+        jxF 6
+
+        testoverf
+        ORG (52 SHL 8)
+        INC DI
+        MOV BX,DX               ;INC (HL)
+        call testbx             ; ***** HMc *****
+        jnc noinc               ; ***** HMc *****
+        SAHF
+        INC B[BX]
+        LAHF
+        OVA KR,11
+        jx 11
+NOINC:  jmp noinc_ixiy
+
+        testoverf
+        ORG (53 SHL 8)
+        INC DI
+        MOV BX,DX               ;DEC (HL)
+        call testbx             ; ***** HMc *****
+        jnc nodec               ; ***** HMc *****
+        SAHF
+        DEC B[BX]
+        LAHF
+        OVS KR,11
+        jx 11
+NODEC:  jmp noinc_ixiy
+
+        testoverf
+        ORG (54 SHL 8)
+        INC DI
+        MOV BH,[DI]             ;LD (HL),N
+        XCHG SI,DX
+        MEMP SI,BH
+        XCHG SI,DX
+        INC DI
+        jxF 10
+
+        testoverf
+        ORG (55 SHL 8)
+        INC DI
+        OR AH,1                 ;SCF
+        jxF 4
+
+        testoverf
+        ORG (56 SHL 8)
+        INC DI
+        SAHF
+        JB >L0                  ;JR C,E
+        INC DI
+        jxF 7
+l0:     mov bl,[di]
+        rol bl,1
+        sbb bh,bh
+        ror bx,1
+        add di,bx
+        inc di
+        jx 12
+
+        testoverf
+        ORG (57 SHL 8)
+        INC DI
+        AND AH,0fc
+        ADD DX,BP               ;ADD HL,SP
+        adc ah,0
+        xor ah,dh
+        and ah,0d7
+        xor ah,dh
+        mov es:temp_f,ah
+        jxF 11
+
+        testoverf
+        ORG (58 SHL 8)
+        INC DI
+        MOV BX,[DI]             ;LD A,(NN)
+        MOV AL,[BX]
+        INC DI
+        INC DI
+        jx 13
+
+        testoverf
+        ORG (59 SHL 8)
+        INC DI
+        DEC BP                  ;DEC SP
+        jxF 6
+
+        testoverf
+        ORG (60 SHL 8)
+        INC DI
+        SAHF
+        INC AL                  ;INC A
+        LAHF
+        OVA 4
+        jxF 4
+
+        testoverf
+        ORG (61 SHL 8)
+        INC DI
+        SAHF
+        DEC AL                  ;DEC A
+        LAHF
+        OVS 4
+        jxF 4
+
+        testoverf
+        ORG (62 SHL 8)
+        INC DI
+        MOV AL,[DI]             ;LD A,N
+        INC DI
+        jxF 7
+
+        testoverf
+        ORG (63 SHL 8)
+        INC DI
+        XOR AH,1                ;CCF
+        jxF 4
+
+        testoverf
+        org (64 shl 8)          ;ld b,b
+        inc di
+        jxf 4
+
+        testoverf
+        org (65 shl 8)          ;ld b,c
+        inc di
+        mov ch,cl
+        jxf 4
+
+        testoverf
+        org (66 shl 8)          ;ld b,d
+        inc di
+        xchg bx,si
+        mov ch,bh
+        xchg bx,si
+        jxf 4
+
+        testoverf
+        org (67 shl 8)          ;ld b,e
+        inc di
+        xchg bx,si
+        mov ch,bl
+        xchg bx,si
+        jxf 4
+
+        testoverf
+        org (68 shl 8)          ;ld b,h
+        inc di
+        mov ch,dh
+        jxf 4
+
+        testoverf
+        org (69 shl 8)          ;ld b,l
+        inc di
+        mov ch,dl
+        jxf 4
+
+        testoverf
+        org (70 shl 8)          ;ld b,(hl)
+        inc di
+        xchg bx,dx
+        mov ch,[bx]
+        xchg bx,dx
+        jxf 7
+
+        testoverf
+        org (71 shl 8)          ;ld b,a
+        inc di
+        mov ch,al
+        jxf 4
+
+        testoverf
+        org (72 shl 8)          ;ld c,b
+        inc di
+        mov cl,ch
+        jxf 4
+
+        testoverf
+        org (73 shl 8)          ;ld c,c
+        inc di
+        jxf 4
+
+        testoverf
+        org (74 shl 8)          ;ld c,d
+        inc di
+        xchg bx,si
+        mov cl,bh
+        xchg bx,si
+        jxf 4
+
+        testoverf
+        org (75 shl 8)          ;ld c,e
+        inc di
+        xchg bx,si
+        mov cl,bl
+        xchg bx,si
+        jxf 4
+
+        testoverf
+        org (76 shl 8)          ;ld c,h
+        inc di
+        mov cl,dh
+        jxf 4
+
+        testoverf
+        org (77 shl 8)          ;ld c,l
+        inc di
+        mov cl,dl
+        jxf 4
+
+        testoverf
+        org (78 shl 8)          ;ld c,(hl)
+        inc di
+        xchg bx,dx
+        mov cl,[bx]
+        xchg bx,dx
+        jxf 7
+
+        testoverf
+        org (79 shl 8)          ;ld c,a
+        inc di
+        mov cl,al
+        jxf 4
+
+        testoverf
+        org (80 shl 8)          ;ld d,b
+        inc di
+        xchg bx,si
+        mov bh,ch
+        xchg bx,si
+        jxf 4
+
+        testoverf
+        org (81 shl 8)          ;ld d,c
+        inc di
+        xchg bx,si
+        mov bh,cl
+        xchg bx,si
+        jxf 4
+
+        testoverf
+        org (82 shl 8)          ;ld d,d
+        inc di
+        jxf 4
+
+        testoverf
+        org (83 shl 8)          ;ld d,e
+        inc di
+        xchg bx,si
+        mov bh,bl
+        xchg bx,si
+        jxf 4
+
+        testoverf
+        org (84 shl 8)          ;ld d,h
+        inc di
+        xchg bx,si
+        mov bh,dh
+        xchg bx,si
+        jxf 4
+
+        testoverf
+        org (85 shl 8)          ;ld d,l
+        inc di
+        xchg bx,si
+        mov bh,dl
+        xchg bx,si
+        jxf 4
+
+        testoverf
+        org (86 shl 8)          ;ld d,(hl)
+        inc di
+        xchg dx,si
+        mov dh,[si]
+        xchg dx,si
+        jxf 7
+
+        testoverf
+        org (87 shl 8)          ;ld d,a
+        inc di
+        xchg bx,si
+        mov bh,al
+        xchg bx,si
+        jxf 4
+
+        testoverf
+        org (88 shl 8)          ;ld e,b
+        inc di
+        xchg bx,si
+        mov bl,ch
+        xchg bx,si
+        jxf 4
+
+        testoverf
+        org (89 shl 8)          ;ld e,c
+        inc di
+        xchg bx,si
+        mov bl,cl
+        xchg bx,si
+        jxf 4
+
+        testoverf
+        org (90 shl 8)          ;ld e,d
+        inc di
+        xchg bx,si
+        mov bl,bh
+        xchg bx,si
+        jxf 4
+
+        testoverf
+        org (91 shl 8)          ;ld e,e  This instruction is on 0066 in the
+        cmp di,066              ; new rom of the 128; here NMI for Disciple is
+        jne ldee_nopage         ; triggered.
+        cmp byte es:disc_on,0
+        je ldee_nopage
+        cmp byte es:m128flg,0
+        jne ldee_nopage         ;This should never be needed, but bbsts (see push af)
+        jmp pageif1             ;Execute the PUSH AF at 0066 in Disc. rom!
+ldee_nopage:
+        inc di
+        jxf 4
+
+        testoverf
+        org (92 shl 8)          ;ld e,h
+        inc di
+        xchg bx,si
+        mov bl,dh
+        xchg bx,si
+        jxf 4
+
+        testoverf
+        org (93 shl 8)          ;ld e,l
+        inc di
+        xchg bx,si
+        mov bl,dl
+        xchg bx,si
+        jxf 4
+
+        testoverf
+        org (94 shl 8)          ;ld e,(hl)
+        inc di
+        xchg dx,si
+        mov dl,[si]
+        xchg dx,si
+        jxf 7
+
+        testoverf
+        org (95 shl 8)          ;ld e,a
+        inc di
+        xchg bx,si
+        mov bl,al
+        xchg bx,si
+        jxf 4
+
+        testoverf
+        org (96 shl 8)          ;ld h,b
+        inc di
+        mov dh,ch
+        jxf 4
+
+        testoverf
+        org (97 shl 8)          ;ld h,c
+        inc di
+        mov dh,cl
+        jxf 4
+
+        testoverf
+        org (98 shl 8)          ;ld h,d
+        inc di
+        xchg bx,si
+        mov dh,bh
+        xchg bx,si
+        jxf 4
+
+        testoverf
+        org (99 shl 8)          ;ld h,e
+        inc di
+        xchg bx,si
+        mov dh,bl
+        xchg bx,si
+        jxf 4
+
+        testoverf
+        org (100 shl 8)         ;ld h,h
+        inc di
+        jxf 4
+
+        testoverf
+        org (101 shl 8)         ;ld h,l
+        inc di
+        mov dh,dl
+        jxf 4
+
+        testoverf
+        org (102 shl 8)         ;ld h,(hl)
+        inc di
+        xchg bx,dx
+        mov bh,[bx]
+        xchg bx,dx
+        jxf 7
+
+        testoverf
+        org (103 shl 8)         ;ld h,a
+        inc di
+        mov dh,al
+        jxf 4
+
+        testoverf
+        org (104 shl 8)         ;ld l,b
+        inc di
+        mov dl,ch
+        jxf 4
+
+        testoverf
+        org (105 shl 8)         ;ld l,c
+        inc di
+        mov dl,cl
+        jxf 4
+
+        testoverf
+        org (106 shl 8)         ;ld l,d
+        inc di
+        xchg bx,si
+        mov dl,bh
+        xchg bx,si
+        jxf 4
+
+        testoverf
+        org (107 shl 8)         ;ld l,e
+        inc di
+        xchg bx,si
+        mov dl,bl
+        xchg bx,si
+        jxf 4
+
+        testoverf
+        org (108 shl 8)         ;ld l,h
+        inc di
+        mov dl,dh
+        jxf 4
+
+        testoverf
+        org (109 shl 8)         ;ld l,l
+        inc di
+        jxf 4
+
+        testoverf
+        org (110 shl 8)         ;ld l,(hl)
+        inc di
+        xchg bx,dx
+        mov bl,[bx]
+        xchg bx,dx
+        jxf 7
+
+        testoverf
+        org (111 shl 8)         ;ld l,a
+        inc di
+        mov dl,al
+        jxf 4
+
+        
+        testoverf
+        ORG (112 SHL 8)
+        INC DI
+        MOV BX,DX               ;LD (HL),B
+        MEMP BX,CH
+        jx 7
+
+
+        testoverf
+        ORG (113 SHL 8)
+        INC DI
+        MOV BX,DX               ;LD (HL),C
+        MEMP BX,CL
+        jx 7
+
+        
+        testoverf
+        ORG (114 SHL 8)
+        INC DI
+        XCHG SI,DX              ;LD (HL),D
+        MEMP SI,DH
+        XCHG SI,DX
+        jxF 7
+
+        
+        testoverf
+        ORG (115 SHL 8)
+        INC DI
+        XCHG SI,DX              ;LD (HL),E
+        MEMP SI,DL
+        XCHG SI,DX
+        jxF 7
+
+        
+        testoverf
+        ORG (116 SHL 8)
+        INC DI
+        MOV BX,DX               ;LD (HL),H
+        MEMP BX,DH
+        jx 7
+
+
+        testoverf
+        ORG (117 SHL 8)
+        INC DI
+        MOV BX,DX               ;LD (HL),L
+        MEMP BX,DL
+        jx 7
+
+        
+        testoverf
+        ORG (118 SHL 8)             ;HALT
+        CMP BYTE ES:IFF,0
+        JNZ IRPTS_ENABLED
+        jmp call_c_immediately_halt
+IRPTS_ENABLED:
+        test byte es:countt,0ff
+        jne haltend             ;Count down T states by executing HALT many times
+        INC DI
+haltwait:
+        jmp haltwait            ;The timer routine is responsible for getting
+haltend:                        ; me out of this!
+        jxF 4
+
+
+        testoverf
+        ORG (119 SHL 8)
+        INC DI
+        MOV BX,DX               ;LD (HL),A
+        MEMP BX,AL
+        jx 7
+
+        testoverf
+        org (120 shl 8)         ;ld a,b
+        inc di
+        mov al,ch
+        jxf 4
+
+        testoverf
+        org (121 shl 8)         ;ld a,c
+        inc di
+        mov al,cl
+        jxf 4
+
+        testoverf
+        org (122 shl 8)         ;ld a,d
+        inc di
+        xchg bx,si
+        mov al,bh
+        xchg bx,si
+        jxf 4
+
+        testoverf
+        org (123 shl 8)         ;ld a,e
+        inc di
+        xchg bx,si
+        mov al,bl
+        xchg bx,si
+        jxf 4
+
+        testoverf
+        org (124 shl 8)         ;ld a,h
+        inc di
+        mov al,dh
+        jxf 4
+
+        testoverf
+        org (125 shl 8)         ;ld a,l
+        inc di
+        mov al,dl
+        jxf 4
+
+        testoverf
+        org (126 shl 8)         ;ld a,(hl)
+        inc di
+        xchg bx,dx
+        mov al,[bx]
+        xchg bx,dx
+        jxf 7
+
+        testoverf
+        org (127 shl 8)         ;ld a,a
+        inc di
+        jxf 4
+
+
+;***************************************************
+; Opcodes in range 080-0BF (add a,reg8 to cp reg8)
+;***************************************************
+
+        testoverf
+        org (128 shl 8)         ;add
+        inc di
+        add al,ch
+        lahf
+        flag al
+        ova 4
+        jxf 4
+
+        testoverf
+        org (129 shl 8)         ;add
+        inc di
+        add al,cl
+        lahf
+        flag al
+        ova 4
+        jxf 4
+
+        testoverf
+        org (130 shl 8)
+        inc di
+        xchg bx,si
+        add al,bh
+        xchg bx,si
+        lahf
+        flag al
+        ova 4
+        jxf 4
+
+        testoverf
+        org (131 shl 8)
+        inc di
+        xchg bx,si
+        add al,bl
+        xchg bx,si
+        lahf
+        flag al
+        ova 4
+        jxf 4
+
+        testoverf
+        org (132 shl 8)
+        inc di
+        add al,dh
+        lahf
+        flag al
+        ova 4
+        jxf 4
+
+        testoverf
+        org (133 shl 8)
+        inc di
+        add al,dl
+        lahf
+        flag al
+        ova 4
+        jxf 4
+
+        testoverf
+        org (134 shl 8)
+        inc di
+        mov bx,dx
+        add al,[bx]
+        lahf
+        flag al
+        ova jx,11
+        jx 11
+
+        testoverf
+        org (135 shl 8)
+        inc di
+        add al,al
+        lahf
+        flag al
+        ova 4
+        jxf 4
+
+
+        testoverf
+        org (136 shl 8)         ;adc
+        inc di
+        sahf
+        adc al,ch
+        lahf
+        flag al
+        ova 4
+        jxf 4
+
+        testoverf
+        org (137 shl 8)         ;adc
+        inc di
+        sahf
+        adc al,cl
+        lahf
+        flag al
+        ova 4
+        jxf 4
+
+        testoverf
+        org (138 shl 8)
+        inc di
+        sahf
+        xchg bx,si
+        adc al,bh
+        xchg bx,si
+        lahf
+        flag al
+        ova 4
+        jxf 4
+
+        testoverf
+        org (139 shl 8)
+        inc di
+        sahf
+        xchg bx,si
+        adc al,bl
+        xchg bx,si
+        lahf
+        flag al
+        ova 4
+        jxf 4
+
+        testoverf
+        org (140 shl 8)
+        inc di
+        sahf
+        adc al,dh
+        lahf
+        flag al
+        ova 4
+        jxf 4
+
+        testoverf
+        org (141 shl 8)
+        inc di
+        sahf
+        adc al,dl
+        lahf
+        flag al
+        ova 4
+        jxf 4
+
+        testoverf
+        org (142 shl 8)
+        inc di
+        sahf
+        mov bx,dx
+        adc al,[bx]
+        lahf
+        flag al
+        ova jx,11
+        jx 11
+
+        testoverf
+        org (143 shl 8)
+        inc di
+        sahf
+        adc al,al
+        lahf
+        flag al
+        ova 4
+        jxf 4
+
+
+        testoverf
+        org (144 shl 8)         ;sub
+        inc di
+        sub al,ch
+        lahf
+        flag al
+        ovs 4
+        jxf 4
+
+        testoverf
+        org (145 shl 8)         ;sub
+        inc di
+        sub al,cl
+        lahf
+        flag al
+        ovs 4
+        jxf 4
+
+        testoverf
+        org (146 shl 8)
+        inc di
+        xchg bx,si
+        sub al,bh
+        xchg bx,si
+        lahf
+        flag al
+        ovs 4
+        jxf 4
+
+        testoverf
+        org (147 shl 8)
+        inc di
+        xchg bx,si
+        sub al,bl
+        xchg bx,si
+        lahf
+        flag al
+        ovs 4
+        jxf 4
+
+        testoverf
+        org (148 shl 8)
+        inc di
+        sub al,dh
+        lahf
+        flag al
+        ovs 4
+        jxf 4
+
+        testoverf
+        org (149 shl 8)
+        inc di
+        sub al,dl
+        lahf
+        flag al
+        ovs 4
+        jxf 4
+
+        testoverf
+        org (150 shl 8)
+        inc di
+        mov bx,dx
+        sub al,[bx]
+        lahf
+        flag al
+        ovs jx,11
+        jx 11
+
+        testoverf
+        org (151 shl 8)
+        inc di
+        mov ax,04200
+        flag al
+        jxf 4
+
+
+        testoverf
+        org (152 shl 8)         ;sbb
+        inc di
+        sahf
+        sbb al,ch
+        lahf
+        flag al
+        ovs 4
+        jxf 4
+
+        testoverf
+        org (153 shl 8)         ;sbb
+        inc di
+        sahf
+        sbb al,cl
+        lahf
+        flag al
+        ovs 4
+        jxf 4
+
+        testoverf
+        org (154 shl 8)
+        inc di
+        sahf
+        xchg bx,si
+        sbb al,bh
+        xchg bx,si
+        lahf
+        flag al
+        ovs 4
+        jxf 4
+
+        testoverf
+        org (155 shl 8)
+        inc di
+        sahf
+        xchg bx,si
+        sbb al,bl
+        xchg bx,si
+        lahf
+        flag al
+        ovs 4
+        jxf 4
+
+        testoverf
+        org (156 shl 8)
+        inc di
+        sahf
+        sbb al,dh
+        lahf
+        flag al
+        ovs 4
+        jxf 4
+
+        testoverf
+        org (157 shl 8)
+        inc di
+        sahf
+        sbb al,dl
+        lahf
+        flag al
+        ovs 4
+        jxf 4
+
+        testoverf
+        org (158 shl 8)
+        inc di
+        sahf
+        mov bx,dx
+        sbb al,[bx]
+        lahf
+        flag al
+ovsjx11:
+        ovs jx,11
+        jx 11
+
+        testoverf
+        org (159 shl 8)
+        inc di
+        sahf
+        sbb al,al
+        lahf
+        flag al
+        ovs 4
+        jxf 4
+
+
+        testoverf
+        org (160 shl 8)         ;and
+        inc di
+        and al,ch
+        lahf
+        flag al
+        or ah,010
+        and ah,0fd
+        xor ah,al
+        and ah,0d7
+        xor ah,al
+        mov es:temp_f,ah
+        jxf 4
+
+        testoverf
+        org (161 shl 8)         ;and
+        inc di
+        and al,cl
+        lahf
+        flag al
+        or ah,010
+        and ah,0fd
+        xor ah,al
+        and ah,0d7
+        xor ah,al
+        mov es:temp_f,ah
+        jxf 4
+
+        testoverf
+        org (162 shl 8)
+        inc di
+        xchg bx,si
+        and al,bh
+        xchg bx,si
+        lahf
+        flag al
+        or ah,010
+        and ah,0fd
+        xor ah,al
+        and ah,0d7
+        xor ah,al
+        mov es:temp_f,ah
+        jxf 4
+
+        testoverf
+        org (163 shl 8)
+        inc di
+        xchg bx,si
+        and al,bl
+        xchg bx,si
+        lahf
+        flag al
+        or ah,010
+        and ah,0fd
+        xor ah,al
+        and ah,0d7
+        xor ah,al
+        mov es:temp_f,ah
+        jxf 4
+
+        testoverf
+        org (164 shl 8)
+        inc di
+        and al,dh
+        lahf
+        flag al
+        or ah,010
+        and ah,0fd
+        xor ah,al
+        and ah,0d7
+        xor ah,al
+        mov es:temp_f,ah
+        jxf 4
+
+        testoverf
+        org (165 shl 8)
+        inc di
+        and al,dl
+        lahf
+        flag al
+        or ah,010
+        and ah,0fd
+        xor ah,al
+        and ah,0d7
+        xor ah,al
+        mov es:temp_f,ah
+        jxf 4
+
+        testoverf
+        org (166 shl 8)
+        inc di
+        mov bx,dx
+        and al,[bx]
+        lahf
+        flag al
+        or ah,010
+        and ah,0fd
+        xor ah,al
+        and ah,0d7
+        xor ah,al
+        mov es:temp_f,ah
+        jx 11
+
+        testoverf
+        org (167 shl 8)
+        inc di
+        and al,al
+        lahf
+        flag al
+        or ah,010
+        and ah,0fd
+        xor ah,al
+        and ah,0d7
+        xor ah,al
+        mov es:temp_f,ah
+        jxf 4
+
+        
+        testoverf
+        org (168 shl 8)         ;xor
+        inc di
+        xor al,ch
+        lahf
+        flag al
+        and ah,0ed
+        jxf 4
+
+        testoverf
+        org (169 shl 8)         ;xor
+        inc di
+        xor al,cl
+        lahf
+        flag al
+        and ah,0ed
+        jxf 4
+
+        testoverf
+        org (170 shl 8)
+        inc di
+        xchg bx,si
+        xor al,bh
+        xchg bx,si
+        lahf
+        flag al
+        and ah,0ed
+        jxf 4
+
+        testoverf
+        org (171 shl 8)
+        inc di
+        xchg bx,si
+        xor al,bl
+        xchg bx,si
+        lahf
+        flag al
+        and ah,0ed
+        jxf 4
+
+        testoverf
+        org (172 shl 8)
+        inc di
+        xor al,dh
+        lahf
+        flag al
+        and ah,0ed
+        jxf 4
+
+        testoverf
+        org (173 shl 8)
+        inc di
+        xor al,dl
+        lahf
+        flag al
+        and ah,0ed
+        jxf 4
+
+        testoverf
+        org (174 shl 8)
+        inc di
+        mov bx,dx
+        xor al,[bx]
+        lahf
+        flag al
+        and ah,0ed
+        jx 11
+
+        testoverf
+        org (175 shl 8)
+        inc di
+        xor al,al
+        lahf
+        flag al
+        and ah,0ed
+        jxf 4
+
+
+        testoverf
+        org (176 shl 8)         ;or
+        inc di
+        or al,ch
+        lahf
+        flag al
+        and ah,0ed
+        jxf 4
+
+        testoverf
+        org (177 shl 8)         ;or
+        inc di
+        or al,cl
+        lahf
+        flag al
+        and ah,0ed
+        jxf 4
+
+        testoverf
+        org (178 shl 8)
+        inc di
+        xchg bx,si
+        or al,bh
+        xchg bx,si
+        lahf
+        flag al
+        and ah,0ed
+        jxf 4
+
+        testoverf
+        org (179 shl 8)
+        inc di
+        xchg bx,si
+        or al,bl
+        xchg bx,si
+        lahf
+        flag al
+        and ah,0ed
+        jxf 4
+
+        testoverf
+        org (180 shl 8)
+        inc di
+        or al,dh
+        lahf
+        flag al
+        and ah,0ed
+        jxf 4
+
+        testoverf
+        org (181 shl 8)
+        inc di
+        or al,dl
+        lahf
+        flag al
+        and ah,0ed
+        jxf 4
+
+        testoverf
+        org (182 shl 8)
+        inc di
+        mov bx,dx
+        or al,[bx]
+        lahf
+        flag al
+        and ah,0ed
+        jx 11
+
+        testoverf
+        org (183 shl 8)
+        inc di
+        or al,al
+        lahf
+        flag al
+        and ah,0ed
+        jxf 4
+
+
+        testoverf
+        org (184 shl 8)         ;cmp
+        inc di
+        cmp al,ch
+        lahf
+        flag ch
+        ovs 4
+        jxf 4
+
+        testoverf
+        org (185 shl 8)         ;cmp
+        inc di
+        cmp al,cl
+        lahf
+        flag cl
+        ovs 4
+        jxf 4
+
+        testoverf
+        org (186 shl 8)
+        inc di
+        xchg bx,si
+        cmp al,bh
+        flag bh
+        xchg bx,si
+        lahf
+        ovs 4
+        jxf 4
+
+        testoverf
+        org (187 shl 8)
+        inc di
+        xchg bx,si
+        cmp al,bl
+        flag bl
+        xchg bx,si
+        lahf
+        ovs 4
+        jxf 4
+
+        testoverf
+        org (188 shl 8)
+        inc di
+        cmp al,dh
+        lahf
+        flag dh
+        ovs 4
+        jxf 4
+
+        testoverf
+        org (189 shl 8)
+        inc di
+        cmp al,dl
+        lahf
+        flag dl
+        ovs 4
+        jxf 4
+
+        testoverf
+        org (190 shl 8)
+        inc di
+        mov bx,dx
+        #if flags
+        mov bl,[bx]
+        cmp al,bl
+        flag bl
+        #else
+        cmp al,[bx]
+        #endif
+        lahf
+        #if flags
+        jmp ovsjx11
+        #else
+        ovs jx,11
+        jx 11
+        #endif
+
+        testoverf
+        org (191 shl 8)         ;cp a
+        inc di
+        and ah,32
+        or ah,66
+        flag al
+        cmp di,056b
+        if z call ld_cpahandler
+        jxf 4
+
+
+
+
+        testoverf
+        ORG (192 SHL 8)
+        SAHF                    ;RET NZ
+        jnZ >l8
+        inc di
+        jxf 5
+l8:     Z80R
+
+        testoverf
+        ORG (193 SHL 8)
+        INC DI
+        INC BP
+        je segviol_popbc
+        MOV CX,DS:[BP-1]        ;POP BC
+popbc1: INC BP
+        jxF 10
+segviol_popbc:
+        mov cl,ds:[bp-1]
+        mov ch,ds:[bp]
+        jmp popbc1
+
+        testoverf
+        ORG (194 SHL 8)
+        SAHF
+        jnz >l8
+        add di,3
+        jxf 10
+l8:     Z80J                    ;JP NZ,NN
+
+        testoverf
+        ORG (195 SHL 8)
+        MOV DI,[DI+1]           ;JP NN
+        jxF 10
+
+        testoverf
+        ORG (196 SHL 8)
+        add di,3
+        SAHF
+        jz >l1
+        jmp callc
+l1:     jxf 10
+
+        testoverf
+        ORG (197 SHL 8)
+        cmp es:w[_tstates],34
+hcr_tinker3 equ $-1
+        jb skipt_bc
+noskipt_bc:
+        INC DI
+        DEC BP                  ;PUSH BC
+        je segviol_bc
+        DEC BP
+        MEMP BP,CX
+        jxF 11
+segviol_bc:
+        jmp segviol_bc2
+skipt_bc:
+        jmp skipt_2_bc
+
+
+        testoverf
+        ORG (198 SHL 8)
+        INC DI                  ;ADD A,N
+        ADD AL,[DI]
+        flag al
+        LAHF
+        OVA IC,7
+        jxF 7
+
+        testoverf
+        ORG (199 SHL 8)
+        INC DI
+        MOV BX,0                ;RST 0
+        JMP RST
+
+        testoverf
+        ORG (200 SHL 8)         ;ret z
+        SAHF
+        jz >l8
+        inc di
+        jxf 5
+l8:     z80r
+
+        testoverf
+        ORG (201 SHL 8)
+OPC201: CMP DI,0700             ;RET
+        JZ PAGEIN_NORMAL_ROM
+        INC BP
+        jz ret_segviol
+opc201a:
+        mov di,ds:[bp-1]
+        inc bp
+        jxF 10
+PAGEIN_NORMAL_ROM:
+        inc bp
+        call PAGIN_N_ROM
+opc201b:
+        xor bl,bl               ;bugfix for v3.02 (3/11/94)
+        jmp opc201a
+ret_segviol:
+        mov bl,ds:[bp-1]
+        mov bh,ds:[bp]
+        xchg bx,di
+        jmp opc201b
+
+
+
+
+        testoverf
+        ORG (202 SHL 8)
+        SAHF
+        jz >l8
+        add di,3
+        jxf 10
+l8:     z80j                    ;jp z,nn
+
+        testoverf
+        ORG (203 SHL 8)         ;0CB PREFIX
+        INC DI
+        MOV BH,[DI]
+        MOV BL,02D              ;OP 0xx2D STAAN DE CB INSTRUCTIES
+        INC DI
+        inc es:b[rr]
+        JMP BX
+
+        testoverf
+        ORG (204 SHL 8)
+        ADD DI,3                ;CALL Z,NN
+        SAHF
+        if z jmp callc
+        jxf 10
+
+
+        testoverf
+        ORG (205 SHL 8)
+        add di,3                ;CALL NN
+callc:  mov bx,di               ;Important bugfix here due to C. Lemon
+        mov di,[di-2]
+        dec bp
+        cmp bp,04000            ;mind word write at FFFF
+        jb call2
+        dec bp
+call0:  mov ds:[bp],bx
+call1:  xor bl,bl
+        jxf 17
+call2:  call testbpffff         ;do DEC BP, mind FFFF.  Don't write
+        jc call0                ; byte when SP=FFFF because the Spectrum
+        jmp call1               ; is crashing anyway
+
+
+
+        testoverf
+        ORG (206 SHL 8)
+        INC DI
+        SAHF                    ;ADC A,N
+        ADC AL,[DI]
+        flag al
+        LAHF
+        OVA IC,7
+        jxF 7
+
+        testoverf
+        ORG (207 SHL 8)
+        INC DI
+        MOV BX,8                ;RST 8
+        JMP RST
+
+        testoverf
+        ORG (208 SHL 8)
+        SAHF
+        jnc >l8
+        inc di
+        jxf 5
+l8:     Z80R                    ;RET NC
+
+        testoverf
+        ORG (209 SHL 8)
+        INC DI
+        INC BP
+        je segviol_popde
+        MOV SI,DS:[BP-1]        ;POP DE
+popde1: INC BP
+        jxF 10
+segviol_popde:
+        mov bl,ds:[bp-1]
+        mov bh,ds:[bp]
+        mov si,bx
+        xor bl,bl
+        jmp popde1
+
+
+        testoverf
+        ORG (210 SHL 8)
+        SAHF
+        jnc >l8
+        add di,3
+        jxf 10
+l8:     Z80J                    ;JP NC,NN
+
+        testoverf
+        ORG (211 SHL 8)
+        INC DI
+        INC DI                  ;OUT (N),A
+        SAHF
+        MOV BL,[DI-1]
+        MOV BH,AL
+        MOV AH,AL
+        CALL OUT_CONTINUE       ;DO THE OUT
+        jx 11
+
+        testoverf
+        ORG (212 SHL 8)
+        ADD DI,3                ;CALL NC,NN
+        SAHF
+        if nc jmp callc
+        jxf 10
+
+        testoverf
+        ORG (213 SHL 8)
+        cmp es:w[_tstates],34
+hcr_tinker2 equ $-1
+        jb skipt_de
+noskipt_de:
+        INC DI                  ;PUSH DE
+        DEC BP
+        je segviol_de
+        DEC BP
+        MEMP BP,SI
+skip11t_de:
+        jxF 11
+segviol_de:
+        jmp segviol1_de
+skipt_de:
+        jmp skipt_2_de
+
+
+        testoverf
+        ORG (214 SHL 8)
+        INC DI                  ;SUB N
+        SUB AL,[DI]
+        flag al
+        LAHF
+        OVS IC,7
+        jxF 7
+
+        testoverf
+        ORG (215 SHL 8)
+        INC DI
+        MOV BX,010              ;RST 010
+        JMP RST
+
+        testoverf
+        ORG (216 SHL 8)
+        SAHF
+        jc >l8
+        inc di
+        jxf 5
+l8:     Z80R                    ;RET C
+
+        testoverf
+        ORG (217 SHL 8)
+        INC DI
+        XCHG ES:RBCA,CX         ;EXX
+        XCHG ES:RDEA,SI
+        XCHG ES:RHLA,DX
+        jxF 4
+
+        testoverf
+        ORG (218 SHL 8)
+        SAHF
+        jc >l8
+        add di,3
+        jxf 10
+l8:     Z80J                    ;JP C,NN
+
+        ORG (219 SHL 8)         ;IN A,(n), zie INSTALL_FASTIN in MISCP1.8
+;in_fast_0:                     ;This code is here only to set the value
+        inc di                  ; of 'previous_in' below.
+        cmp b[di],0fe
+        jne $
+        inc di
+        mov bx,dx
+        mov dx,0
+        in al,dx
+        shl al,1
+        mov al,0
+previous_in equ $-1
+
+
+        testoverf
+        ORG (220 SHL 8)
+        add di,3                ;CALL C,NN
+        sahf
+        if c jmp callc
+        jxf 10
+
+        testoverf
+        ORG (221 SHL 8)         ;0DD (IX PREFIX)
+        INC DI
+        MOV BH,[DI]
+        MOV BL,04D              ;OP 0xx4D STAAN DE IX INSTRUCTIES
+        inc es:b[rr]
+        JMP BX
+
+        testoverf
+        ORG (222 SHL 8)
+        INC DI
+        SAHF                    ;SBC A,N
+        SBB AL,[DI]
+        flag al
+        LAHF
+        OVS IC,7
+        jxF 7
+
+        testoverf
+        ORG (223 SHL 8)
+        INC DI
+        MOV BX,018              ;RST 018
+        JMP RST
+
+        testoverf
+        ORG (224 SHL 8)
+        SAHF
+        jpo >l8
+        inc di
+        jxf 5
+l8:     Z80R                    ;RET PO
+
+
+        testoverf
+        ORG (225 SHL 8)
+        INC DI
+        INC BP
+        je segviol_pophl
+        MOV DX,DS:[BP-1]        ;POP HL
+pophl1: INC BP
+        jxF 10
+segviol_pophl:
+        mov dl,ds:[bp-1]
+        mov dh,ds:[bp]
+        jmp pophl1
+
+
+        testoverf
+        ORG (226 SHL 8)
+        SAHF
+        jpo >l8
+        add di,3
+        jxf 10
+l8:     Z80J                    ;JP PO,NN
+
+
+        testoverf
+        ORG (227 SHL 8)
+        INC DI
+        call testbpffff2
+        jnc exsp_rom
+        XCHG DS:[BP],DX         ;EX (SP),HL
+exsp_done:
+        jxF 19
+exsp_rom:
+        mov dh,ds:[bp+1]
+        inc bp
+        je exsp_romram
+        mov dl,ds:[bp-1]
+        dec bp
+        jmp exsp_done
+exsp_romram:
+        xchg dl,ds:[bp-1]
+        jmp exsp_done
+
+
+        testoverf
+        ORG (228 SHL 8)
+        ADD DI,3                ;CALL PO,NN
+        SAHF
+        if po jmp callc
+        jxf 10
+
+
+        testoverf
+        org (229) shl 8         ;push hl
+        cmp es:w[_tstates],34
+hcr_tinker1 equ $-1
+        jb ph_other
+        inc di
+        dec bp
+        jz ph_segviol
+        dec bp
+        cmp bp,04000
+        jb ph_other
+        cmp di,58
+        je ph_other
+        mov ds:[bp],dx
+        jxf 11
+ph_other:
+        jmp ph_other2
+ph_segviol: jmp ph_segviol2
+
+
+        testoverf
+        ORG (230 SHL 8)
+        INC DI                  ;AND N
+        AND AL,[DI]
+        flag al
+        LAHF
+        or ah,010
+        and ah,0fd
+        INC DI
+        jxF 7
+
+
+        testoverf
+        ORG (231 SHL 8)
+        INC DI
+        MOV BX,020              ;RST 020
+        JMP RST
+pagedi_discon:
+        cmp byte es:disc_on,0
+        je op229d
+pagedi:
+        cmp byte ptr es:discflg,0    ; ***** HMc *****
+        jne OP229d                   ; ***** HMc *****
+        cmp byte ptr es:_disctype,16 ; ***** HMc *****
+        jc OP229d                    ; ***** HMc *****
+        jmp pagedisc                 ; ***** HMc *****
+OP229d: jxF 11                       ; ***** HMc MOD *****
+
+
+        testoverf
+        ORG (232 SHL 8)
+        SAHF
+        jpe >l8
+        inc di
+        jxf 5
+l8:     Z80R                    ;RET PE
+
+
+        testoverf
+        ORG (233 SHL 8)
+        MOV DI,DX               ;JP (HL)
+        jxF 4
+pagedisc:                       ; ***** HMc *****
+        dec word es:disccnt
+        if nz jmp jxf11_label
+        mov bx,es:disccnt0
+        mov es:disccnt,bx
+        jmp pageif1
+
+
+        testoverf
+        ORG (234 SHL 8)
+        SAHF
+        jpe >l8
+        add di,3
+        jxf 10
+l8:     Z80J                    ;JP PE,NN
+
+        testoverf
+        ORG (235 SHL 8)
+        INC DI
+        CMP DI,0170B            ;DEZE INSTRUCTIE STAAT O.A. IN DE CLOSE# ROUTINE
+        JZ CLOSE_IF1_ENTRY
+        XCHG SI,DX              ;EX DE,HL
+        jxF 4
+CLOSE_IF1_ENTRY:
+        JMP CLOS_IF1_ENTRY      ;ZIE ED.8 VOOR DIT LABEL
+
+
+        testoverf
+        ORG (236 SHL 8)
+        ADD DI,3                ;CALL PE,NN
+        SAHF
+        if pe jmp callc
+        jxf 10
+
+
+        testoverf
+        ORG (237 SHL 8)         ;0ED
+        INC DI
+        MOV BL,[DI]
+        XOR BH,BH
+        SHL BX,1
+        INC DI                  ;wijs naar volgende operator
+        inc es:b[rr]
+        JMP ES:[BX+ED_TABLE]
+
+        testoverf
+        ORG (238 SHL 8)
+        INC DI                  ;XOR N
+        XOR AL,[DI]
+        flag al
+        LAHF
+        and ah,0ed
+        INC DI
+        jxF 4
+
+        testoverf
+        ORG (239 SHL 8)
+        INC DI
+        MOV BX,028              ;RST 028
+        JMP RST
+pushaf_ccc:
+        xchg al,ah
+        cmp di,067
+        jne pushaf_nopage
+        cmp byte es:disc_on,0
+        je pushaf_nopage
+        cmp byte es:m128flg,0   ;NMI pages Multiface, then don't page Disciple
+        jne pushaf_nopage
+        jmp pageif1
+pushaf_nopage:
+        jmp jxf11_label
+
+        testoverf
+        ORG (240 SHL 8)
+        SAHF
+        jns >l8
+        inc di
+        jxf 5
+l8:     Z80R                    ;RET P
+
+        testoverf
+        ORG (241 SHL 8)
+        INC DI
+        INC BP
+        je segviol_popaf
+        MOV AX,DS:[BP-1]        ;POP AF
+popaf1: mov es:temp_f,al
+        INC BP
+        XCHG AL,AH
+        jxF 10
+segviol_popaf:
+        mov al,ds:[bp-1]
+        mov ah,ds:[bp]
+        jmp popaf1
+
+        testoverf
+        ORG (242 SHL 8)
+        SAHF
+        jns >l8
+        add di,3
+        jxf 10
+l8:     Z80J                    ;JP P,NN
+
+        testoverf
+        ORG (243 SHL 8)
+        INC DI
+        MOV WORD ES:IFF,0       ;DI
+        test byte ES:MODFLG,1   ;0=normal mode, 1=real mode, 2=1+key pressed, (bit7)
+        jz di_norealmode        ;No real mode: do not turn off timer interrupts
+        mov bl,al
+        in al,021
+        or al,1
+        out 021,al
+        mov al,bl
+di_norealmode:
+        cmp byte es:disc_on,0   ; ***** HMc ***** If this is DI at 0000H then
+        if nz jmp di_norealmodd ; ***** HMc ***** page Disciple ROM
+di_norealmode1:
+        CMP DI,04D5
+        JMP SA_DIHANDLER
+
+        testoverf
+        ORG (244 SHL 8)
+        ADD DI,3                ;CALL P,NN
+        SAHF
+        if ns jmp callc
+        jxf 10
+di_norealmodd:
+        cmp di,1                        ; ***** HMc ***** DI at 0000H?
+        if ne jmp di_norealmode1        ; ***** HMc ***** No, jump back
+        cmp byte ptr ds:di,0af          ; ***** HMc ***** Proper ROM?
+        if ne jmp di_norealmode1        ; ***** HMc *****
+        jmp pageif1                     ; ***** HMc ***** Page Disc. ROM
+
+        testoverf
+        ORG (245 SHL 8)
+        INC DI
+        XCHG AL,AH
+        cmp al,es:temp_f
+        jz >l1                  ;If flags have not changed, do not include
+        xor al,ah               ;inofficial flags
+        and al,0ff-028
+        xor al,ah
+l1:     dec bp
+        cmp di,067
+        je pushaf_c
+        cmp bp,04000            ;MEMP! (and mind segment boundary)
+        jb pushaf_c
+        DEC BP                  ;PUSH AF
+        mov ds:[bp],ax
+        xchg al,ah
+        jmp jxf11_label
+pushaf_c:
+        jmp pushaf_cc
+
+
+        testoverf
+        ORG (246 SHL 8)
+        INC DI                  ;OR N
+        OR AL,[DI]
+        flag al
+        LAHF
+        and ah,0ed
+        INC DI
+        jxF 4
+
+
+        testoverf
+        ORG (247 SHL 8)
+        INC DI
+        MOV BX,030              ;RST 030
+        JMP RST
+pushaf_cc:
+        test bp
+        je pushaf_segviol
+        dec bp
+        call testbp
+        if c mov ds:[bp],ax
+        jmp pushaf_ccc
+pushaf_segviol:
+        jmp pushaf_segviol1
+
+
+        testoverf
+        ORG (248 SHL 8)
+        SAHF
+        js >l8
+        inc di
+        jxf 5
+l8:     Z80R                    ;RET M
+
+
+        testoverf
+        ORG (249 SHL 8)
+        INC DI
+        MOV BP,DX               ;LD SP,HL
+        jxF 6
+pushaf_segviol1:
+        call testbpffff         ;also does DEC BP
+        if c mov ds:[bp],al
+        jmp pushaf_ccc
+
+
+        testoverf
+        ORG (250 SHL 8)
+        SAHF
+        js >l8
+        add di,3
+        jxf 10
+l8:     Z80J                    ;JP M,NN
+
+        testoverf
+        ORG (251 SHL 8)
+        INC DI
+        MOV WORD ES:IFF,0FFFF   ;EI
+        mov BH,al
+        in al,021
+        and al,0fe
+        out 021,al
+        mov al,bH
+        test byte es:modflg,080
+        jne ei_vidupd
+        jxF 4
+ei_vidupd:
+        jmp ei_videoupdate
+
+        testoverf
+        ORG (252 SHL 8)
+        ADD DI,3                ;CALL M,NN
+        SAHF
+        if s jmp callc
+        jxf 10
+
+        testoverf
+        ORG (253 SHL 8)
+        INC DI
+        MOV BH,[DI]             ;0FD, IY PREFIX
+        MOV BL,081              ;OP 0xx81 STAAN DE FD INSTRUCTIES
+        inc es:b[rr]
+        JMP BX
+
+        testoverf
+        ORG (254 SHL 8)
+        INC DI                  ;CP N
+        #if flags
+        mov bh,[di]
+        cmp al,bh
+        flag bh
+        #else
+        CMP AL,[DI]
+        #endif
+        LAHF
+        OVS IC,4
+        jxF 4
+
+        testoverf
+        ORG (255 SHL 8)
+        INC DI
+        MOV BX,038              ;RST 038
+RST:    DEC BP
+        DEC BP
+        call testbp                     ; ***** HMc *****
+        jnc rstc                        ; ***** HMc *****
+        mov ds:[bp],di                  ; ***** HMc *****
+rstc:   MOV DI,BX
+        jx 11
+
+        testoverf
+        ORG 0FFEF
+        NOP
+
+USEjx   EQU 1
+
+
+
+EMULATOR ENDS
+

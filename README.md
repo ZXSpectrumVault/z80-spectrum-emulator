@@ -8,9 +8,8 @@ I recently came across the ZIP of my registered copy and realized the source for
 
 As the emulator was written for DOS (I don't have the source for the later Windows version) there's no easy way to build or run this outside of tools like DOSbox or VMware along with the necessary dependencies which according to make.bat are:
 
-- a86 version 3.22   (version 3.14 is no good)
-- Turbo C v2.0 or Borland C v3.1   (other versions no problem)
-- Microsoft Linker version 2.40 or 
-- Turbo Link version 5.1 (Turbo Link versions 1 to 3 all have difficulty linking the emulator)
+- a86 version 3.22    (version 3.14 is no good)
+- Borland C++ v4.02   (but any other compiler should work)
+- Turbo Link versions 5.1 and 6.10 
 
 Gerton has kindly also allowed the code to be relicenced under the MIT license. I have left the older more restrictive header licenses in the individual files for historical reasons.

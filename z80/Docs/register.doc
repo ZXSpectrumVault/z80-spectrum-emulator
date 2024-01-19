@@ -1,0 +1,179 @@
+Sinclair ZX Spectrum Emulator 'Z80' v4.00  -  6/3/99  -  by G.A. Lunter
+
+
+
+    'Z80' is a shareware program.  The program is not completely
+    functional, and the parts which are left out are included when you
+    register.  You are encouraged to give this demo version to friends, but
+    DO NOT change the original archive in any way, please.  The shareware
+    version of the emulator consists of the Z80-400.ZIP archive file, which
+    should contain the following 3 files:
+
+        INSTALL.EXE  - installation program
+        INSTALL.000  - installation data file
+        README.TXT   - short description of the program
+
+    The shareware version includes WinZ80, the Windows version of Z80,
+    The registered versions of Z80 and WinZ80 feature the following extras:
+
+    Z80:
+
+	* Full DISCiPLE disk interface emulation
+	* Direct loading of tapes via SoundBlaster or LPT-interface
+	* No time restrictions, adjustable emulation speed at all times
+
+    WinZ80:
+
+        * Direct loading of tapes through any Windows wave input device
+          (e.g. SoundBlaster)
+        * No time restrictions, no intro window.
+
+    If you register, you get the fully working versions, and the following
+    utilities:
+
+
+        CONVERT  - a general conversion program: can list out BASIC and
+                   translate it back, produce .GIF or .PCX files from
+                   screen dumps, translate Spectrum ASCII (CR) to PC ASCII
+                   (CR/LF), and some other things.
+        CONVZ80  - Translates various snapshot and tape formats of other
+                   Spectrum emulators into each other.  Can handle the
+                   familiar .SNA format use by several emulators (JPP,
+                   XZX,...), and also Pedro Gimeno's (VGASPEC and SPECTRUM)
+                   .SP format and Kevin J. Phairs' (SPECEM) .PRG format.
+                   It can also handle tape files of SPECEM and L. Rindt and
+                   E. Brukner's emulator ZX.
+        DISCIPLE - Reads DISCiPLE and Plus D diskettes, both 3.5'' and
+                   5.25''.  It translates the 48K and 128K snapshot files
+                   to .Z80 snapshots, and ordinary files and screen
+                   snapshots to .TAP tape files. (Not necessary for the
+                   fully registered version, but handy for the cheaper
+                   one.)
+        ADDDAT   - Utility to edit the additional data part of .SLT
+                   snapshot files, which contain loading screens and level
+                   data.
+        Z802TAP  - Converts a .Z80 snapshot, 48K or 128K, to a .TAP file
+                   which can be loaded into the emulator and saved to tape
+                   by the next utility:
+        TAP2TAPE - Saves the contents of a .TAP file back to tape, to load
+                   it into an ordinary Spectrum.
+        TAP2VOC  - Converts a .TAP file to a .VOC sound sample file, to
+                   write to tape, or to load into the emulator.
+        READVOC  - Reads in a long, 'digital' .VOC sound sample, to be used
+                   as input to the emulator, from the LPT tape interface or
+                   a SoundBlaster.
+        READSB   - Reads .VOC sound samples from SoundBlaster using DMA,
+                   and applies a digital filtering and oversampling algo-
+                   rithm tuned for Spectrum tapes.
+        OUT2VOC  - Converts .OUT log files into .VOC or raw sound sample
+                   files, so that you can easily extract music samples from
+                   Spectrum/Spectrum 128 games, or SAVE directly to a .VOC
+                   or raw sample file.
+        Z80DUMP  - Shows the header and the contents of a .Z80 file.
+
+
+    You will also receive the source files of both emulators, the above
+    utilities and the SamRam.  You will also be kept informed about future
+    (major) updates.
+
+
+
+    How to register:
+    ================
+
+
+    You can register either Z80 (the DOS program), or WinZ80, or both.
+    Registration of Z80 or WinZ80 is BP 15; registration of both programs
+    at once is BP 20.  If you register just one program, please indicate
+    clearly whether you want Z80 or WinZ80.  If you specify neither, we
+    will assume you want the DOS program.
+
+    For those who sent their registration fee upon reading the information
+    that comes with the now obsolete version 3.05, note that Z80 v4.00
+    emulates the DISCiPLE in all cases; if you sent the BP 20 fee you will
+    receive both Z80 with DISCiPLE emulation and WinZ80.
+
+    Please send the money in cash in British currency, or as a cheque made
+    payable to Chezron Software, to:
+
+                Chezron Software
+                34 Saltersgate Drive
+                Birstall
+                LEICESTER  LE4 3FF
+                England
+                Email: outletmag@yahoo.com
+                WWW: http://www.geocities.com/SiliconValley/Orchard/3420/
+                Phone/Fax: 0116 220 9651
+                From abroad: +44 116 220 9651
+
+    If this is inconvenient, you can also send US$ 20 / US$ 25, or DM 35 /
+    DM 50 in cash.  Please do NOT send cheques in currencies other than
+    British Pounds.
+
+
+
+    If you are living in the Czech Republic:
+    ========================================
+
+
+    Then it is probably more convenient to register with JIMAZ.  Also from
+    neighbouring countries it may be quicker and/or cheaper to register
+    with them.  The address is:
+
+                JIMAZ s.r.o.
+                Hermanova 37
+                170 00 Praha 7
+                Czech Republic
+                Phone:  +42 2 379 498
+                Fax:    +42 2 378 103
+                Email:  jimaz@jimaz.cz
+
+    The registration fee is Cz 500 for either program, Cz 650 for both.
+
+
+
+    Are you a registered user already?
+    ==================================
+
+    In that case you can obtain Z80 version 4.00 with DISCiPLE emulation,
+    the full WinZ80 package, and all utilities and sources, by sending BP
+    10 (US$ 15, DM 25) to Chezron Software or Jimaz (see the addresses
+    above).  Please clearly indicate the following:
+
+           * That you apply for an update,
+           * Your name,
+           * Your current address and home country,
+           * If different, the address under which you registered, or last
+             updated, your version of Z80,
+           * The version of Z80 you own (e.g. 3.05 or 2.01 or ...), and
+             whether it emulates the DISCiPLE
+
+
+
+
+    All sites reserve the right to ignore any order which does not comply
+    with the conditions above.
+
+
+
+    The tape interface
+    ==================
+
+    The interface described by the circuit diagram in DIAGRAM.Z80 provides
+    a reliable means for loading any Spectrum program into Z80.  If you
+    don't want to make this interface yourself, a ready built one can be
+    obtained through B G Services, for BP 14.50.  These are professional
+    quality items built into 25W 'D' connectors.  The address is:
+
+                B G Services
+                64 Roebuck Road
+                Chessington
+                Surrey KT9 1JX
+                United Kingdom
+                Phone: (0181) 287 4180  (from abroad: +44 181 287 4180)
+                Fax:   (0181) 391 0744  (from abroad: +44 181 391 0744)
+                Email: briang@bgserv.demon.co.uk
+
+
+
+

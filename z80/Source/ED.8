@@ -1,0 +1,1578 @@
+EMULATOR SEGMENT PARA PUBLIC
+
+;Alle blokjes hebben offset 0B7. Als dit veranderd wordt, verander dan
+; ook de aanroepen van MOVECOMMAND in Z80.8
+
+;This file occupies the 0b7 blocks from 0 to 75 inclusive.
+;There are some gaps left open; some of them are filled in later. See comments.
+
+
+;MACRO VOOR ( LD/CP/OT/IN )( I/D ) [R] ROUTINES
+
+EDMAC MACRO
+##IF '#1'='LDIR'
+        XCHG BX,DX
+        PUSH AX
+M9:     MOV AH,[BX]
+        MEMP SI,AH
+        #2 BX
+        #2 SI
+        DEC CX
+        JZ >M0
+##IF '#3'='R'
+##IF '#2'='INC'
+        CMP W[DI-2],0B0ED
+##ELSE
+        CMP W[DI-2],0B8ED
+##ENDIF
+        JZ M9
+        DEC DI
+        DEC DI
+##ENDIF
+        POP AX
+        XCHG DX,BX
+        OR AH,4
+        jx 16
+M0:     POP AX
+        XCHG DX,BX
+        AND AH,011101001XB
+        jx 16
+
+
+##ELSEIF '#1'='CPIR'
+M9:     MOV BX,DX
+        #2 DX
+        DEC CX
+        CMP [BX],AL
+        RCR AH,1
+        LAHF
+        JCXZ >M0
+##IF '#3'='R'
+        SAHF
+        JZ >M1
+        JMP M9
+##ENDIF
+M1:     OR AH,4
+        jx 16
+M0:     AND AH,011111011XB
+        jx 16
+
+
+##ELSEIF '#1'='INIR'
+##if ('#2'='INC') and ('#3'='R')
+        cmp cl,0e7
+        jnz >m8
+;       jmp far mdrv_inir
+        db 0ea
+        dw offset mdrv_inir
+sfix10: dw 0
+m8:
+##endif
+M9:
+        SAHF
+        DEC CH
+        LAHF
+        CALL IN_BC
+        XCHG BX,DX
+        MEMP BX,DH
+        XCHG BX,DX
+        #2 DX
+##IF '#3'='R'
+        SAHF
+        JNZ M9
+##ENDIF
+        jx 16
+
+##ELSEIF '#1'='OTIR'
+##if ('#2'='INC') and ('#3'='R')
+        cmp cl,0e7
+        jnz >m8
+;       jmp far mdrv_otir
+        db 0ea
+        dw offset mdrv_otir
+sfix11: dw 0
+m8:
+##endif
+M9:
+        SAHF
+        DEC CH
+        LAHF
+        MOV BX,DX
+        MOV BH,[BX]
+        CALL OUT_BC
+        #2 DX
+##IF '#3'='R'
+        SAHF
+        JNZ M9
+##ENDIF
+        jx 16
+##ENDIF
+#EM
+
+
+
+
+
+
+
+
+
+        ORG (0 shl 8)+0B7
+EDOP4A:
+        SAHF
+        ADC DX,CX               ;ADC HL,BC
+        LAHF
+        OVA 15
+        jx 15
+EDOP4B:
+        MOV BX,[DI]             ;LD BC,(NN)
+        MOV CX,[BX]
+        INC DI
+        INC DI
+        jx 20
+
+        testoverflow
+        ORG 0B7+(3 SHL 8)
+EDOP40:
+        CALL IN_BC              ;IN B,(C)
+        test bh
+        ror ah,1
+        lahf
+        MOV CH,BH
+        jx 12
+EDOP43:
+        MOV BX,[DI]             ;LD (NN),BC
+        MEMP BX,CX
+        INC DI
+        INC DI
+        jx 20
+
+
+        testoverflow
+        org 0b7+(1 shl 8)
+gen_timinter:                   ;generate timer interrupt (used by _nmireset())
+        cmp byte es:countt,0
+        je gen_timinter1
+        cmp byte es:coloremu,0
+        jne gen_timinter2
+;       jmp far bare_inter_handler
+        db 0ea
+        dw offset bare_inter_handler
+sfix18: dw 0
+gen_timinter1:
+        pushf
+;       call far bare_inter_handler
+        db 09a
+        dw offset bare_inter_handler
+sfix19: dw 0
+        jx 4
+gen_timinter2:
+;       jmp far inter_handler_coloremu_86
+        db 0ea
+        dw offset inter_handler_coloremu_86
+sfix20: dw 0
+
+        testoverflow
+        ORG 0B7+(4 SHL 8)
+
+EDOP44: NEG AL                  ;NEG
+        LAHF
+        OVS 8
+        jx 8
+EDOP49:
+        MOV BH,CL               ;OUT (C),C
+        CALL OUT_BC
+        jx 12
+EDOP4F:
+        MOV BX,AX               ;LD R,A
+        CBW
+        MOV ES:[OFFSET RR],AX
+        XCHG AX,BX
+        jx 9
+
+
+        testoverflow
+        ORG 0B7+(5 SHL 8)
+EDOP50:
+        CALL IN_BC              ;IN D,(C)
+        test bh
+        ror ah,1
+        lahf
+        XCHG DX,SI
+        MOV DH,BH
+        XCHG DX,SI
+        jx 12
+EDOP53:
+        MOV BX,[DI]             ;LD (NN),DE
+        MEMP BX,SI
+        INC DI
+        INC DI
+        jx 20
+
+
+        testoverflow
+        ORG 0B7+(6 SHL 8)
+EDOP57:
+        mov al,es:ri
+extra_flags:
+        mov bh,ah
+        test al
+        lahf
+        and bh,1
+        cmp byte es:iff2,0
+        if nz or bh,4
+        and ah,011101000xb      ;Reset H, P/V and N (C is already zero)
+        add ah,bh               ;Set P/V according to iff2, and restore C
+        jx 9
+EDOP58:
+        CALL IN_BC              ;IN E,(C)
+        test bh
+        ror ah,1
+        lahf
+        XCHG DX,SI
+        MOV DL,BH
+        XCHG DX,SI
+        jx 12
+
+
+        testoverflow
+        ORG 0B7+(7 SHL 8)
+EDOP59:
+        XCHG DX,SI
+        MOV BH,DL               ;OUT (C),E
+        XCHG DX,SI
+        CALL OUT_BC
+        jx 12
+EDOP60:
+        CALL IN_BC              ;IN H,(C)
+        test bh
+        ror ah,1
+        lahf
+        MOV DH,BH
+        jx 12
+EDOP61:
+        MOV BH,DH               ;OUT (C),H
+        CALL OUT_BC
+        jx 12
+
+
+        testoverflow
+        ORG 0B7+(8 SHL 8)
+EDOP67:
+        XCHG DX,SI
+        MOV BL,[SI]
+        MOV BH,AL
+        XOR AL,BL
+        AND AL,0F0
+        XOR AL,BL
+        SHR BX,1
+        SHR BX,1
+        SHR BX,1
+        SHR BX,1
+        MOV [SI],BL
+        XCHG DX,SI
+        AND AL,AL
+        RCR AH,1
+        LAHF
+        jx 18
+
+
+        testoverflow
+        ORG 0B7+(9 SHL 8)
+EDOP68:
+        CALL IN_BC              ;IN L,(C)
+        test bh
+        ror ah,1
+        lahf
+        MOV DL,BH
+        jmp short edop69jx
+EDOP69:
+        MOV BH,DL               ;OUT (C),L
+        CALL OUT_BC
+edop69jx:
+        jx 12
+EDOP62:
+        SAHF
+        SBB DX,DX               ;SBC HL,HL
+        LAHF
+        OVS 15
+        jx 15
+
+
+        testoverflow
+        ORG 0B7+(10 SHL 8)
+EDOP6F:
+        XCHG SI,DX              ;RLD
+        MOV BL,[SI]
+        XOR BH,BH
+        SHL BX,1
+        SHL BX,1
+        SHL BX,1
+        SHL BX,1
+        XOR BL,AL
+        AND BL,0F0
+        XOR BL,AL
+        AND AL,0F0
+        OR AL,BH
+        MOV [SI],BL
+        XCHG DX,SI
+        RCR AH,1
+        LAHF
+        jx 18
+EDOP73:
+        MOV BX,[DI]             ;LD (NN),SP
+        MEMP BX,BP
+        INC DI
+        INC DI
+        jx 20
+
+
+        testoverflow
+        ORG 0B7+(11 SHL 8)
+edop70:
+        call in_bc
+        jmp short inhlc
+edop71:
+        xor bh,bh
+        jmp short outhlc
+EDOP78:
+        CALL IN_BC              ;IN A,(C)
+        MOV AL,BH
+inhlc:  test bh
+        ror ah,1
+        lahf
+        jx 12
+EDOP79:
+        MOV BH,AL               ;OUT (C),A
+outhlc:
+        CALL OUT_BC
+        jx 12
+
+
+        testoverflow
+        ORG 0B7+(12 SHL 8)
+EDOPA2: EDMAC INIR,INC,NR
+EDOPA3: EDMAC OTIR,INC,NR
+
+
+
+        testoverflow
+        ORG 0B7+(13 SHL 8)
+EDOPA0: EDMAC LDIR,INC,NR
+
+
+        testoverflow
+        ORG 0B7+(29 SHL 8)
+EDOPA8: EDMAC LDIR,DEC,NR
+
+
+
+        testoverflow
+        ORG 0B7+(14 SHL 8)
+EDOPB1: EDMAC CPIR,INC,R,0B1
+
+
+        testoverflow
+        ORG 0B7+(15 SHL 8)
+EDOPB3: EDMAC OTIR,INC,R,0B7
+
+
+
+;
+;The blocks at 0b7+16*256 to 0b7+20*256 are below
+;
+
+
+
+        testoverflow
+        ORG 0B7+(21 SHL 8)
+in_bc:  mov bx,cx               ;Moet blijven staan!!
+IN_CONTINUE:
+        SAHF
+        PUSHF
+        MOV AH,0FF              ;VOORL. RESULT
+        CMP BL,254
+        IF NZ JMP not_keyboard
+in0_keyboard:
+        CMP byte ES:MODFLG,0
+        IF nZ JMP IN_KEYB_REALMODE
+        PUSH AX
+        MOV AH,0BF
+VERSIE_ADRES    EQU $-1         ;HIERIN MOET 0BF OF 0FF GEPOKED WORDEN.
+        push dx
+        MOV DX,ES:WORD TAPEIO
+        IN AL,DX
+        shr al,1
+        AND AL,040
+        XOR AH,AL
+        POP dx
+        MOV AL,BH
+        MOV BX,IN_TAB
+        jmp in_fe_continued
+
+
+        testoverflow
+        ORG 0B7+(22 SHL 8)
+not_keyboard:
+;       call far not_keyboard_far
+        db 09a
+        dw offset not_keyboard_far
+sfix8:  dw 0
+        cmp byte es:c_action_code,0fd   ;in 0 crash?
+        jz in0_crashed
+        popf
+        lahf
+        ret
+in0_crashed:
+        popf
+        lahf
+        pop bx                          ;throw away return address to calling IN
+        mov bl,0fd
+        jmp call_c_immediately
+
+
+
+        testoverflow
+        ORG 0B7+(23 SHL 8)
+;EDFF=NAAR DOS
+;EDFE=ROMPOKE HL,A
+;EDFD=LDIR ROMPOKE
+;EDFC=LDDR ROMPOKE
+;EDFB=RAMBANK LD HL,A
+;EDFA=RAMBANK LD A,HL
+;EDF9=LD A,NORMAL_ROM:(DE) \ LD (HL),A \ INC E \ INC H
+;
+QUEER2:
+;
+;DIT IS EEN 'OPCODE' DIE ZORGT VOOR EEN SNELLERE PRINT-ROUTINE
+;
+        cmp byte es:rommod,2
+        jnz jxlabel
+        test word es:emshandle
+        jz >l1
+        ;jmp far queer2_ems
+        db 0ea
+        dw offset queer2_ems
+sfix15: dw 0
+l1:
+        PUSH ES
+        PUSH AX
+        mov ax,es:romseg
+        MOV ES,AX
+        POP AX
+        MOV AL,ES:[SI+08000]            ;HAAL EEN BYTE UIT DE SAMROM
+        POP ES
+        MOV BX,DX
+        MEMP BX,AL                      ;LD (HL),A
+        XCHG BX,SI
+        INC BL                          ;INC E
+        XCHG BX,SI
+        INC DH                          ;INC H
+jxLABEL:
+        jx 4
+
+
+        testoverflow
+        ORG 0B7+(24 SHL 8)              ;ED FB
+LDOBHLA:                                ;Used in SamRam ROM, but also multi
+        cmp byte es:rommod,2            ; level loader trap, invented by Russel
+        jnz ldobhla_mll                 ; Marks and implemented in XZX 0.5.2
+        cmp di,04000                    ;<04000 = LD other bank:(HL),A;
+        jae ldobhla_mll                 ;>04000 = multi level load trap
+        ;jmp far ldobhla_ems_norm
+        db 0ea
+        dw offset ldobhla_ems_norm
+sfix13: dw 0
+ldobhla_mll:
+        mov bl,0e9                      ;Multi Level Load action code
+        jmp call_c_immediately
+
+
+
+        testoverflow
+        ORG 0B7+(25 SHL 8)
+LDOBAHL:
+        cmp byte es:rommod,2
+        jnz ldobahl_jx
+        test word es:emshandle
+        jz >l1
+        ;jmp far ldobahl_ems
+        db 0ea
+        dw offset ldobahl_ems
+sfix14: dw 0
+l1:
+        MOV BX,DX
+        cmp BH,080
+        JB NORMAL_RAM_PEEK
+        cmp es:b[offset ramstate+2],4          ;First bank paged in?
+        PUSH ES
+        PUSH AX
+        MOV AX,ES:romseg
+        if z add ah,08                          ;if so, go up by 32K
+        add ah,08                               ;step over 2 roms
+        MOV ES,AX
+        POP AX
+        MOV AL,ES:[BX]
+        POP ES
+ldobahl_jx:
+        jx 4
+NORMAL_RAM_PEEK:
+        MOV AL,[BX]
+        jmp ldobahl_jx
+
+
+        testoverflow
+        ORG 0B7+(26 SHL 8)
+LDROMHLA:
+        MOV BX,DX
+        CMP BH,040
+        if ae mov [bx],al
+        jx 4
+EDOP7A:
+        SAHF
+        ADC DX,BP               ;ADC HL,SP
+        LAHF
+        OVA 15
+        jx 15
+
+
+        testoverflow
+        ORG 0B7+(27 SHL 8)
+;
+;ed opcode 0fd, send byte from emulated rs232 port
+;
+sendbyte:
+;       CALL FAR ED_SENDRSBYTE          ;IN Z80.8
+        db 09a
+        dw ed_sendrsbyte
+sfix5:  dw 0
+        jx 4
+
+
+        testoverflow
+        ORG 0B7+(28 SHL 8)
+;
+;ed opcode 0fc, get byte to emulated rs232 port
+;
+getbyte:
+;       CALL FAR ED_GETRSBYTE           ;IN Z80.8
+        db 09a
+        dw ed_getrsbyte
+sfix6:  dw 0
+        jx 4
+
+
+
+
+        testoverflow
+        ORG 0B7+(30 SHL 8)
+EDOPB9: EDMAC CPIR,DEC,R,0B9
+pokebx: call testbx
+        if c mov [bx],ah
+        TEST ah,ah
+        LAHF
+        jx 15
+
+
+        testoverflow
+        ORG 0B7+(31 SHL 8)
+EDOPBB: EDMAC OTIR,DEC,R,0BB
+
+
+        testoverflow
+        ORG 0B7+(32 SHL 8)
+EDOPB0:
+
+;
+;0b7+256*33 wordt ook gebruikt door LDDR
+;
+
+
+        testoverflow
+        ORG 0B7+(34 SHL 8)
+EDOPB8:
+
+;
+;0b7+256*35 wordt ook gebruikt door LDIR
+;
+
+
+        testoverflow
+        ORG 0B7+(36 SHL 8)
+CARBX:  call testbx
+        if c mov [bx],ah
+        TEST ah,ah
+        STC
+        LAHF
+QUEER1:
+        jx 15
+
+
+;
+;The block at 0b7+37*256 is below
+;
+
+
+
+        testoverflow
+        ORG 0B7+(38 SHL 8)
+EDOP7B:
+        MOV BX,[DI]             ;LD SP,(NN)
+        MOV BP,[BX]
+        INC DI
+        INC DI
+        jx 20
+EDOPA9: EDMAC CPIR,DEC,NR
+
+
+        testoverflow
+        ORG 0B7+(39 SHL 8)
+EDOPA1: EDMAC CPIR,INC,NR
+
+
+        testoverflow
+        ORG 0B7+(40 SHL 8)
+EDOP72:
+        SAHF
+        SBB DX,BP               ;SBC HL,SP
+        LAHF
+        OVS 15
+        jx 15
+
+
+
+        testoverflow
+        ORG 0B7+(41 SHL 8)
+EDOP5E:
+        MOV ES:BYTE IMODE,2     ;IM 2
+        jx 8
+EDOP56:
+        MOV ES:BYTE IMODE,1     ;IM 1
+        jx 8
+EDOP63:
+        MOV BX,[DI]             ;LD (NN),HL *ONOFFICIEEL*
+        MEMP BX,DX
+        INC DI
+        INC DI
+        jx 20
+
+
+        testoverflow
+        ORG 0B7+(42 SHL 8)
+EDOP48:
+        CALL IN_BC              ;IN C,(C)
+        MOV CL,BH
+        jx 12
+EDOP42:
+        SAHF
+        SBB DX,CX               ;SBC HL,BC
+        LAHF
+        OVS 15
+        jx 15
+
+
+
+        testoverflow
+        ORG 0B7+(45 SHL 8)
+CLOS_IF1_ENTRY:        
+        TEST BYTE ES:IF1_ON
+        jnz >l1
+        jx 4                    ;RETURN ALS STANDARD SPECTRUM
+l1:
+;       CALL far PAGEIN_IF1_ROM
+        db 09a
+        dw offset pagein_if1_rom
+sfix9:  dw 0
+        MOV DI,01708
+        jx 4
+
+
+        testoverflow
+        ORG 0B7+(46 SHL 8)
+EDOP6B:
+        MOV BX,[DI]             ;LD HL,(NN) *ONOFFICIEEL*
+        MOV DX,[BX]
+        INC DI
+        INC DI
+        jx 20
+EDOP6A:
+        SAHF
+        ADC DX,DX               ;ADC HL,HL
+        LAHF
+        OVA 15
+        jx 15
+
+
+        testoverflow
+        ORG 0B7+(47 SHL 8)
+EDOP5B:
+        MOV BX,[DI]             ;LD DE,(NN)
+        MOV SI,[BX]
+        INC DI
+        INC DI
+        jx 20
+EDOP47:
+        MOV ES:RI,AL            ;LD I,A
+        jx 9
+EDOP41:
+        MOV BH,CH               ;OUT (C),B
+        CALL OUT_BC
+        jx 12
+
+
+;
+;block 48 follows below
+;
+
+
+
+
+        testoverflow
+        ORG 0B7+(50 SHL 8)
+EDOP52:
+        SAHF
+        SBB DX,SI               ;SBC HL,DE
+        LAHF
+        OVS 15
+        jx 15
+
+
+        testoverflow
+        ORG 0B7+(51 SHL 8)
+EDOPBA: EDMAC INIR,DEC,R,0BA
+
+
+        testoverflow
+        ORG 0B7+(52 SHL 8)
+EDOPB2: EDMAC INIR,INC,R,0B2
+
+
+        testoverflow
+        ORG 0B7+(53 SHL 8)
+EDOP5A:
+        SAHF
+        ADC DX,SI               ;ADC HL,DE
+        LAHF
+        OVA 15
+        jx 15
+EDOP51:
+        XCHG DX,SI
+        MOV BH,DH               ;OUT (C),D
+        XCHG DX,SI
+        CALL OUT_BC
+        jx 12
+
+
+        testoverflow
+        ORG 0B7+(54 SHL 8)
+EDOP46:
+        MOV BYTE ES:IMODE,0     ;IM 0
+        jx 8
+
+
+
+        testoverflow
+        ORG 0B7+(56 SHL 8)
+EDOP5F:                         ;LD A,R
+        mov bh,ah
+        mov ax,word es:rr
+        test byte es:mflag,1    ;is the R register being emulated?
+        jne use_ax
+        mov bl,ah
+        mov ax,es:r_rnd
+        push dx
+        mov dx,75
+        mul dx                  ;ax * 75 mod 65536
+        sub ax,dx               ;ax * 75 mod 65537
+        add ax,74               ;(ax+1)*75 - 1 mod 65537
+        mov es:r_rnd,ax
+        mov ah,bl
+        pop dx
+use_ax: shl al,1
+        shr ax,1
+        mov ah,bh
+        jmp extra_flags
+
+
+
+        testoverflow
+        ORG 0B7+(57 SHL 8)
+EDOPAA: EDMAC INIR,DEC,NR
+EDOPAB: EDMAC OTIR,DEC,NR
+
+
+        testoverflow
+        ORG 0B7+(58 SHL 8)
+PAGEIF1:
+;       CALL far PAGEIN_IF1_ROM
+        db 09a
+        dw offset pagein_if1_rom
+sfix2:  dw 0
+        jx 4
+OUT_BC_FAR:
+        CALL OUT_BC
+        RETF
+in_bc_far:
+        call in_bc
+        retf
+
+
+
+END_SPEC:
+        int 3
+;       JMP FAR END_SPECTR
+        db 0ea
+        dw end_spectr
+sfix7:  dw 0
+
+
+
+
+
+        testoverflow
+        org 0b7+(64 SHL 8)
+sarrom: lahf
+        mov ah,b[bx]
+        sar ah,1
+        sahf
+        jx 15
+salrom: lahf
+        mov ah,b[bx]
+        sal ah,1
+        sahf
+        jx 15
+shrrom: lahf
+        mov ah,b[bx]
+        shr ah,1
+        sahf
+        jx 15
+
+
+        testoverflow
+        org 0b7+(65 SHL 8)
+sarrom_ioxdcb:
+        lahf
+        mov ah,b[bx]
+        sar ah,1
+        sahf
+        jmp inoff_xdcb
+salrom_ioxdcb:
+        lahf
+        mov ah,b[bx]
+        sal ah,1
+        sahf
+        jmp inoff_xdcb
+shrrom_ioxdcb:
+        lahf
+        mov ah,b[bx]
+        shr ah,1
+        sahf
+        jmp inoff_xdcb
+carbx_ioxdcb:
+        test bh,0c0
+        if nz mov [bx],ah
+        TEST ah,ah
+        STC
+        LAHF
+        jmp inoff_xdcb
+
+
+        testoverflow
+        org 0b7+(66 SHL 8)
+in_keyb_realmode:
+        push ax
+        mov ah,0bf
+versie_adres2   equ $-1         ;HIERIN MOET 0BF OF 0FF GEPOKED WORDEN.
+        mov bx,dx
+notapeinput2:
+        mov dx,bx
+        POP BX
+        MOV AL,BL               ;HAAL AL TERUG; RESULTAAT IN AH
+UNKNOWN_IN_ADDRESS:
+        POPF
+        MOV BH,AH
+        LAHF
+        RET                     ;AH IS NIET VERANDERD!!!
+in_fe_continued_setbx:
+        mov bx,in_tab
+in_fe_continued:
+        xor al,0ff
+IN_LOOP:
+        rcr al,1
+        IF C AND AH,ES:[BX]
+        INC BX
+        test al
+        jne in_loop
+        POP BX
+        MOV AL,BL               ;HAAL AL TERUG; RESULTAAT IN AH
+        jmp short unknown_in_address
+
+
+
+        testoverflow
+        org 0b7+(67 SHL 8)      ;Moet hier blijven staan!! (Zie install_fastin)
+IN_slow:
+        mov bl,[di]
+        INC DI                  ;IN A,N
+        MOV BH,AL               ;AL IN DE MSB
+        CALL IN_CONTINUE
+        MOV AL,BH
+        jx 11
+
+
+        testoverflow
+        org 0b7+(68 SHL 8)      ;MOET hier blijven staan (zie SILENCE_INST)
+overscan0:
+        mov bx,dx
+        push ax
+        mov al,es:newbor                ;To remove video snow when
+        and ax,0707                     ; playing music through 254 in real mode
+        xor al,ah
+        jz getdxback
+        cmp es:byte modflg,0            ;real mode?
+        je norealmode
+        cmp es:byte gmod,4
+        jb getdxback
+        if z jmp overscan_ega
+        jmp overscan_vga
+norealmode:
+        jmp norealmode_c
+getdxback:
+        pop ax
+        mov dx,bx
+        ret
+
+
+
+        testoverflow
+        org 0b7+(73 shl 8)
+overscan_ega:
+        push bx
+        mov dx,03da
+        in al,dx
+        mov bx,offset ega_border_palette
+        add bl,ah
+        mov al,031
+        mov ah,es:[bx]
+        mov dl,0c0
+        out dx,al
+        mov al,ah
+        out dx,al
+        pop dx
+        pop ax
+        ret
+voc_border1:
+        cmp es:byte gmod,4
+        if b jmp getdxback
+        pushf
+        mov dx,03da
+overscan_egavga_wait:
+        in al,dx
+        test al,1
+        jz overscan_egavga_wait
+        popf
+        jz overscan_ega
+overscan_vga:
+        mov dx,03da
+        in al,dx
+        mov al,8
+        mov dl,0c0
+        out dx,al
+        mov al,ah
+        out dx,al
+        mov al,49
+        out dx,al
+        mov al,ah
+        out dx,al
+        pop ax
+        mov dx,bx
+        ret
+
+
+
+        testoverflow
+        org 0b7+(72 shl 8)
+; T=0 == upper border part; viertel=0 == first screen line
+; viertel = 3 : T = 0 Tstates           ;tstates0 = 14336 ;l0 = (256)-1
+;           0 : T = 64*224 =    14336 T ;tstates0 =   112            -96
+;           1 : T = 159.5*224 = 35728 T ;tstates0 =   224            -97
+;           2 : T = 256.5*224 = 57456 T ;tstates0 = 12432            -1
+;T = 224linecounter - tstates - 224l0 + tstates0 + T0
+hcr_border0:
+        push bx                 ;HL (dx)
+        mov bh,ah               ;save border colour
+        mov al,es:linecounter
+        xor ah,ah
+        mov dx,999  ;224 *****
+tconstlabel3 equ $-2
+        mul dx
+        neg ax
+        sub ax,es:_tstates
+        mov bl,es:viertel       ;3=line 0-63, 0=64-159, 1=160-255, 2=256-311
+        test bl
+        jz hcrb_0
+        dec bl
+        jz hcrb_1
+        dec bl
+        jz hcrb_2
+        add ax,es:tconst0
+        jmp border_cont
+hcrb_2: add ax,es:tconst3
+        jmp border_cont0
+hcrb_0: add ax,es:tconst1
+        jmp border_cont
+hcrb_1: add ax,es:tconst2
+        jmp border_cont
+
+
+
+
+        testoverflow
+        org 0b7+(80 shl 8)
+border_cont0:
+        jc hcr_border_ovf       ;3.5M/50=70000 (69888) > 65535
+border_cont:
+        push ds
+        mov dh,bh               ;save border colour again
+        lds bx,es:vgahcrborbufptr
+        mov [bx],ax
+        mov [bx+2],dh
+        add bx,3
+        mov es:vgahcrborbufptr,bx
+        pop ds
+        mov byte es:bornochange,-3      ;signal: border has changed
+        pop dx
+        pop ax
+        ret
+norealmode_c:
+        cmp es:byte coloremu,0
+        jne hcr_border
+        cmp es:byte _vocplay,0          ;While playing back VOC files, update
+        jne voc_border                  ; overscan even when not in real mode
+        pop ax
+        mov dx,bx
+        ret
+voc_border:
+        jmp voc_border1
+hcr_border:
+        jmp hcr_border0
+
+
+
+        testoverflow
+        org 0b7+(69 SHL 8)
+overscan:
+        call overscan0
+        retf
+        ret
+sa_dihandler:
+        jnz jxlabel2
+        cmp byte es:modflg,0
+        jnz jxlabel2
+        mov bl,0f3
+        jmp call_c_immediately
+jxlabel2:
+        jx 4
+
+
+        testoverflow
+        org 0b7+(70 SHL 8)
+ld_cpahandler:
+        cmp byte es:modflg,0
+        jnz ret
+        cmp byte es:_vocplay,0
+        jnz ret                         ;Don't trap load while playing voc files
+        pop bx
+        mov bl,0f2
+call_c_immediately:
+        mov word es:trapadr,offset emulate_0
+        mov word es:trapseg,cs
+        mov byte es:c_active,0
+        mov byte es:c_action_code,bl
+;        jmp far enter_c
+        db 0ea
+        dw enter_c
+sfix16: dw 0
+        ret
+call_c_immediately_halt:
+        INC DI
+        mov bl,0fe
+        jmp call_c_immediately
+
+
+        testoverflow
+        org 0b7+(71 SHL 8)
+noinc_ixiy:
+        mov bl,[bx]
+        sahf
+        inc bl
+        lahf
+        ova KR,11
+        jx 11
+nodec_ixiy:
+        mov bl,[bx]
+        sahf
+        dec bl
+        lahf
+        ovs KR,11
+        jx 11
+
+
+;
+;
+;Now the routines dedicated to the handling of OUT instructions follow.
+;
+;
+
+        testoverflow
+        org 0b7+(16 SHL 8)              ;This address may not be changed!
+out_bc: sahf                            ;The actual code is in Z80.8
+        mov ah,bh                       ; and is transferred here by
+        mov bx,cx                       ; Silence_Inst
+out_continue:
+
+
+
+        testoverflow
+        ORG 0B7+(17 SHL 8)              ;This address may not be changed!
+NO_SPEAKER:
+;       call far no_speaker_far
+        db 09a
+        dw offset no_speaker_far
+sfix4:  dw 0
+        popf
+        lahf
+        ret
+
+pnr_normalrom_cont:             ;see below (PAGIN_N_ROM)
+        and al,16                  ;nonzero: page in normal rom (rom 0)
+        mov al,0
+        jnz pnr_normalrom
+        mov al,ah
+pnr_normalrom:
+        pop ds
+        xor ah,ah
+;       call far swap_mem_far
+        db 09a
+        dw swap_mem_far
+sfix12: dw 0
+        xchg ax,bx              ;swap_mem_far doesn't touch the BX register
+        ret
+pagin_n_rom_far:
+        call pagin_n_rom
+emul_retf_label:
+        retf
+
+
+        testoverflow
+        ORG 0B7+(44 SHL 8)
+PAGIN_N_ROM:                            ;This routine pages the normal...
+        MOV BYTE es:IF1FLG,0
+        mov byte es:discflg,0           ;  DISCiPLE paged out.
+        test byte es:m128flg,0ff
+        jne ret
+        push ds                         ;...or any of the SamRam rom's
+        push es                         ; back in if the Interface I
+        pop ds                          ; or Disciple has finished
+        mov word rompage1,-1
+        xchg ax,bx
+        mov ax,02ff                     ;default secondary rom: bank 2
+        cmp byte rommod,ah         ;just to save one byte, no mysterious
+        jb pnr_done                ;connection between the two two's.
+        cmp byte rommod,3               ; ***** HMc *****
+        je pnr_done                     ; ***** HMc *****
+        ja pnr_128
+        MOV Al,[IN31TAB+1]         ;ff=samram inactive
+        test byte [in31tab+3]      ;which samram rom should be paged in?
+        if nz inc ah               ;ordinary samrom or 2nd samrom (bank 2 or 3)
+        jmp short pnr_done
+pnr_128:
+        mov al,[hstate]            ;'128? (bit 4=1: old rom active)
+pnr_done:
+        jmp pnr_normalrom_cont
+        ret
+
+
+        testoverflow
+        org 0b7+(18 shl 8)      ; ( DO NOT MOVE!!!! )  ***** HMc *****
+testbx:                         ; ***** HMc *****
+        test bh,0c0             ; RAM write?  ***** HMc *****
+        jz testbxcont           ; <4000, jump for further checks  ***** HMc *****
+        stc                     ; Signal RAM
+        ret
+testbxcont:
+        test bh,020             ;bottom or top 8k block?
+        je testbxbot
+        cmp byte es:rompage2,0ff    ;0ff (ROM) -> nc; 0 (RAM) -> c
+        ret
+testbxbot:
+        cmp byte es:rompage1,0ff
+        ret
+
+
+
+        testoverflow
+        org 0b7+(19 shl 8)      ; ( DO NOT MOVE!!! ) ***** HMc *****
+testbp:                         ; ***** HMc *****
+        test bp,0c000           ; RAM write?  ***** HMc *****
+        jz testbpcont           ; <4000, jump for further checks  ***** HMc *****
+        stc                     ; Signal RAM
+        ret
+testbpcont:
+        test bp,02000
+        je testbpbot
+        cmp byte es:rompage2,0ff    ;0ff (ROM) -> nc; 0 (RAM) -> c
+        ret
+testbpbot:
+        cmp byte es:rompage1,0ff
+        ret
+
+
+testbpffff:                     ;See callc in Emul.8
+        dec bp
+testbpffff2:                    ;See ex (sp),hl
+        cmp bp,0ffff
+        je ret                  ;nc, signal Rom
+        test bp,0c000           ; RAM write?  ***** HMc *****
+        jz testbpcont           ; <4000, jump for further checks  ***** HMc *****
+        stc                     ; Signal RAM
+        ret
+
+
+
+        testoverflow
+        org     0b7+(20 shl 8)  ; ( DO NOT MOVE!!! ) ***** HMc *****
+testsi:                         ; ***** HMc *****
+        test si,0c000           ; RAM write?  ***** HMc *****
+        jz testsicont           ; <4000, jump for further checks  ***** HMc *****
+        stc                     ; Signal RAM
+        ret
+testsicont:
+        test si,02000
+        je testsibot
+        cmp byte es:rompage2,0ff    ;0ff (ROM) -> nc; 0 (RAM) -> c
+        ret
+testsibot:
+        cmp byte es:rompage1,0ff
+        ret
+
+
+
+        testoverflow
+        org 0b7+(74 shl 8)
+EDOP45: MOV BH,ES:IFF2          ;RETN
+        MOV ES:IFF,BH
+normal_reti:
+        xor bl,bl
+        jmp opc201
+EDOP4D:                         ;RETI
+        test byte es:[offset iff],0ff
+        jz normal_reti
+        cmp es:imode,2              ;check whether further AMS mouse irupts
+        jne normal_reti             ;have to be generated; then generate final
+        cmp byte es:amsmouse,0ff    ;frame interrupt
+        jne normal_reti
+        mov bl,es:rommod
+        and bl,0fe
+        je check_amsinterr
+        cmp bl,2
+        jne normal_reti             ;only ams mouse emulation in mode 0,1,4,5
+check_amsinterr:
+;       jmp far check_amsinterr_far
+        db 0ea
+        dw offset check_amsinterr_far
+sfix22: dw 0
+
+
+
+
+
+        testoverflow
+        org 0b7+(75 shl 8)
+trapper:
+        cmp byte es:debugflg,0fe        ;save at trap? (0ff = -xd switch)
+        je trapper_save
+        pop bx                  ;drop return adr.  Note: T states count wrong here
+        int 3                   ; (At a trap, the T states of instruction preceding
+                                ; the trapped address is not included.)
+emulate_0:                      ;Entry point after trap or interrupt from
+        xor bl,bl               ; the emulator, eg. when counting T states
+        mov bh,[di]             ;Here the R register should NOT be updated!
+        jmp bx                  ;Continue emulating
+trapper_save:
+        cmp byte es:nmi,0ff     ;Is there an NMI pending?
+        jne trapper_save_cont
+        cmp byte es:intimer,0ff ;Is timer single stepping me?
+        jne trapper_save_cont   ;If both yes, then prob. NMI after trap; ignore
+        ret                     ;second trap and simply continue to generate NMI
+trapper_save_cont:
+        pop bx                  ;drop return address
+        mov bl,0ec
+        jmp call_c_immediately
+
+
+        testoverflow
+        org 0b7+(76 shl 8)
+ei_videoupdate:
+        push ax
+        push bx
+        push cx
+        push dx
+        push bp
+        push cs
+        mov ax,offset ei_vidupd_return
+        push ax
+        mov ax,offset retf_label
+        push ax
+        ;jmp far video_update
+        db 0ea
+        dw offset video_update
+sfix21: dw ?
+ei_vidupd_return:
+        pop bp
+        pop dx
+        pop cx
+        pop bx
+        pop ax
+        jx 4
+
+
+
+        testoverflow
+        org 0b7+(77 shl 8)
+
+
+
+
+        testoverflow
+        org 0b7+(78 shl 8)
+
+
+        testoverflow
+        org 0b7+(79 shl 8)
+sfix17: dw 0
+
+
+
+        testoverflow        ;DO NOT MOVE.  (Being jumped to from the IN routine.
+        org 0b7+(81 shl 8)  ; See install_fastin in MISCP1.8) (Used in real mode only)
+        sub dl,4            ;dsp_read
+        in al,dx            ;sample byte
+        mov ah,al
+        add dl,2
+wait_till_okay:
+        in al,dx
+        shl al,1
+        jc wait_till_okay
+        mov al,020              ;send command to get another sample
+        out dx,al
+        mov al,ah
+        cmp al,080-5
+        sbb al,al
+        and al,040
+        not al
+        mov cs:[previous_in],al     ;Only valid in real mode!!
+        mov dx,bx
+        jx 11
+
+
+        testoverflow
+        org 0b7+(82 shl 8)
+
+
+
+        testoverflow
+        org 0b7+(83 shl 8)
+
+
+
+
+        testoverflow
+        org 0b7+(84 shl 8)
+_name_label:
+        nop
+
+
+
+
+        testoverflow
+        org 0b7+(85 shl 8)      ;OUT jumps to here when logging outs
+        push si
+        push ax
+        mov si,offset _outlogtable
+outlogcheck:
+        mov ax,es:[si]
+        cmp al,bl
+        je outlogcheck2
+outlogcontinue:
+        inc si
+        inc si
+        test ax
+        jne outlogcheck
+        pop ax
+        pop si
+        jmp outlogdoout
+outlogcheck2:
+        cmp ah,0
+        je outlog_gotit
+        cmp ah,bh
+        jne outlogcontinue
+outlog_gotit:
+;       jmp far outlog_far
+        db 0ea
+        dw offset outlog_far
+sfix23: dw 0
+
+
+
+
+
+        testoverflow
+        org 0b7+(86 shl 8)
+outlogdoout:
+        TEST BL,1
+        IF NZ JMP no_speaker
+        call overscan0
+        MOV BX,AX
+        MOV ES:BYTE NEWBOR,ah
+        cmp byte es:silence,0
+        jne outlog_nosound
+        IN AL,061
+        XCHG AL,AH
+        AND AX,0FD10
+        ADD AL,-16
+        SBB AL,AL
+        AND AL,2
+        OR AL,AH
+        OUT 061,AL
+        MOV AX,BX
+outlog_nosound:
+        POPF
+        LAHF
+        RET
+
+
+        testoverflow
+        org 0b7+(87 shl 8)
+outlog_trace:
+        cmp b[di],118           ;trick; makes log files easier to compare
+        je ret
+        push ax
+        push bx
+        push cx
+        mov cx,0fffe            ;flag to signify trace
+        mov bx,di               ;PC
+        mov ah,al               ;last byte: AL
+;***************************************************
+;Temporary change: log R register
+;        mov ah,es:rr
+;Temporary change: log fffd out register
+;        mov ah,es:lastfffd
+;***************************************************
+
+;       call far outlog_save5bytes_far
+        db 09a
+        dw offset outlog_save5bytes_far
+sfix24: dw 0
+        pop cx
+        pop bx
+        pop ax
+        ret
+
+
+
+        testoverflow
+        org 0b7+(88 shl 8)
+skipt_2_bc:
+        cmp es:b[countt],0
+        jne skipt2
+        jmp noskipt_bc
+skipt_2_de:
+        cmp es:b[countt],0
+        jne skipt2
+        jmp noskipt_de
+skipt_2:
+        mov es:w[_tstates],3
+        dec byte es:[offset rr]          ;to counteract the INC [RR] in jxf
+        jxf 4
+segviol_bc2:
+        dec bp
+        mov ds:[bp],cl
+        jmp jxf11_label
+segviol1_de:
+        dec bp
+        xchg bx,si
+        mov ds:[bp],bl
+        xchg bx,si
+        jmp jxf11_label
+
+
+
+        testoverflow
+        org 0b7+(89 shl 8)
+ph_other2:
+        cmp es:b[countt],0
+        je ph_other2b
+        cmp es:w[_tstates],34
+hcr_tinker4 equ $-1
+        if b jmp skipt_2
+ph_other2b:
+        call testbp
+        if c mov ds:[bp],dx
+ph_other3:
+        cmp di,58
+        if ne jmp jxf11_label
+        jmp pagedi_discon
+ph_segviol2:
+        dec bp
+        mov ds:[bp],dl
+        jmp ph_other3
+
+
+
+        testoverflow
+        org 0b7+(90 shl 8)
+keepmap:
+        push ds
+        push bx
+        push cx
+        mov bx,es:vgahcrbuf         ;now used to hold map of opcodes
+        mov ds,bx
+        mov bx,di
+        mov cl,3
+        shr bx,cl                   ;now bx = pc div 8
+        mov cx,di
+        and cl,7
+        inc cl
+        mov ch,128
+        rol ch,cl                   ;now bit position in ch = pc mod 8
+        or [bx],ch                  ;mark address as 'code'
+        pop cx
+        pop bx
+        pop ds
+        ret
+
+
+
+        testoverflow
+        org 0b7+(91 shl 8)
+
+
+
+
+;
+;104 to 123: slowdown routines for 4 to 23 T state instructions
+;
+        testoverflow
+        ORG 0FFef
+        NOP
+
+
+EMULATOR ENDS
+
+jxtable segment byte public
+        dw 0                    ;end-marker
+        db 0
+        db 768 dup 0            ;allocate space for 256-8 CB instructions
+jxtable ends
+

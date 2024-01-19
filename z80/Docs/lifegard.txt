@@ -1,0 +1,123 @@
+
+Instructions for:  Lifeguard by Romantic Robot
+----------------------------------------------
+
+
+Introduction.
+-------------
+
+The Lifeguard is a unique utility designed to automate the process of
+discovering unlimited lives.  The Lifeguard is for the exclusive use with
+any ZX Spectrum and a corresponding Multiface.  It loads into the Multiface's
+own 8K RAM extension and does not take any Spectrum RAM.  Thus you can run
+a game as usual, STOP it with the Multiface RED button and use the Lifeguard
+to search and disable the algorithm keeping track of the number of lives,
+bullets, ammo etc.
+
+
+Installing the Lifeguard in Multiface.
+--------------------------------------
+
+This section originally went on about how to install the program in the
+Multiface.  For Z80 Emulator users, simply use the .TAP file included with
+the emulator, or a snapshot of it.  Enuring you are running the Multiface
+with Z80, press any key, the program will reset and upon pressing key F5
+will be presented with the Lifeguard menu.  All references to the 'red
+button' or STOP button have been replaced with F5, the key used to activate
+the Lifeguard software.
+
+
+Using The Lifeguard.
+--------------------
+
+Once you load your game in the usual way, make a note of the CURRENT
+number of lives (not displayed on screen, but physically COUNT them!).
+
+Eg.  If your game starts with 10 lives, and you have already lost 2,
+the number to note is 10-2=8 !
+
+Press F5 and you will see the following menu:-
+
+        +----------------------------------------+
+        | (S)earch    :           (C)ustom: 00   |
+        | (F)lip      :  DEC A / DEC HL / CUSTOM |
+        | (L)ives=003 :  1 = up 2 = down 3 = set |
+        | (N)ext poke                            |
+        | Number of pokes = 000                  |
+        | Counter = 000                 00000    |
+        +----------------------------------------+
+
+To call up an option, press the letter in brackets.  To quit, press <BREAK>
+and you will be returned will be returned to your game.
+
+To give yourself unlimited lives, you will first have to enter the current
+number of lives into the LIVES counter, decide (FLIP) which instruction
+or CUSTOM you wish to test out.  SEARCH for the poke and then try it out
+with NEXT.  See below for these stages in greater detail.
+
+LIVES:  Having pressed '1' or '2' to increase/decrease the CURRENT value of
+lives (or bullets, ammo etc.), press key '3' to set this value.
+
+FLIP:  Nearly all games use the DEC A or DEC (HL) to decrease the value of
+lives etc.  If DEC A does not work in a particular game, press F to FLIP
+to DEC (HL).  You can also FLIP to search for a CUSTOMised value if you
+wish.
+
+CUSTOM: Pressing 'C' will allow you to enter a value into a special location
+which can be used as described above.  Use '1' or '2' to increase or decrease
+the value and '3' to set it.  This option enables you to search for all
+manners of things.  For example, INC A (dec: 60) can be used to increase
+the number of aliens you have to shoot.  So if you put 60 on the 'C'
+counter and have the right value on the LIVES counter, you could stop the
+aliens increasing, or stop a clock etc.
+
+SEARCH:  This option searches through the program looking for either
+DEC A, DEC (HL) or CUSTOM, depending on what you have chosen with 'FLIP'.
+After a search has been completed, the number of possible locations is
+stored and displayed in 'Number Of Pokes'.
+
+NEXT:  Once the Lifeguard has found some potential POKEs, you can try
+them out with 'Next'.  The number of pokes is shown and so is the Counter
+below, displaying which one is being tested.  Finally, and most importantly,
+there is also the relevant current ADDRESS which the Lifeguard tests by
+POKEing it with '0' and then automatically jumping back into the game.  Now
+try the game and see if you succeeded in doing whatever you wanted to do!
+
+If yes, then make a note of the address (if you press F5 it will still
+be there) and perhaps you can use the 'Toolkit' in Multiface next time
+and POKE this address with '0'.
+
+If not, then re-enter Lifeguard with F5 and press 'N'ext again - so long
+as the Counter did not reach the number of pokes available.  If you have
+test out ALL the pokes available, then FLIP to the other DEC instruction
+or try out the CUSTOMised instruction and SEARCH again.
+
+It is a good idea to test just before losing a life, as you can see the
+effect quickly:  if you lose a life and the number of lives DOES decrease
+then there is more work for the Lifeguard.
+
+As an example, here are a couple of games with their pokes:
+
++------------------------------------------------------------+
+|  GAME       |  FLIP    |  LIVES   |  COUNTER   |  ADDRESS  |
++------------------------------------------------------------+
+|  Kinetik    | DEC A    |  = 4 men |  4th POKE  | 49165     |
++------------------------------------------------------------+
+|  Gyroscope  | DEC (HL) |  = 3 men |  1st POKE  | 33922     |
++------------------------------------------------------------+
+
+
+A message from the typer of these instructions ....
+----------------------------------------------------
+
+I have copied these instructions out perfectly from the original photocopy
+and verified the above addresses with the person who sent me the copy and
+the addresses above DO NOT WORK !  The correct ones are as follows:
+
+Kinetik - could not find it !
+
+Gyroscope - Infinite Lives = 53922
+            Infinite Time  = 59146 (clock is stuck on 59!)
+
+I do not know whether this is a misprint or a cockup on the emulators behalf
+and I do not wish to speculate either !
